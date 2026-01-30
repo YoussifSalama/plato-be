@@ -1,0 +1,138 @@
+{
+    id: "batch_req_69716ed01e4c8190be12e4c3f611ccfa",
+    custom_id: "resume-1",
+    response: {
+      status_code: 200,
+      request_id: "9deedc14280c47cfb1101e1d4dd0d3a4",
+      body: {
+        id: "chatcmpl-D0cp6GdYoN5ka7sONUWXIakxZerIt",
+        object: "chat.completion",
+        created: 1769041608,
+        model: "gpt-5.2-2025-12-11",
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: "assistant",
+              content: {
+                structured: {
+                  name: "Youssif Salama",
+                  contact: {
+                    email: "youssifsalama01@gmail.com",
+                    phone: "01556543218",
+                    linkedin: null,
+                    github: null
+                  },
+                  education: [
+                    {
+                      degree: "Faculty of Computer Science & Information Technology",
+                      institution: "Damanhour University",
+                      year: null
+                    }
+                  ],
+                  experience: [
+                    {
+                      title: "Full Stack Developer",
+                      company: "Trendlix",
+                      start_year: 2025,
+                      end_year: "Present"
+                    },
+                    {
+                      title: "Backend Instructor",
+                      company: "MBD Academy",
+                      start_year: 2024,
+                      end_year: 2025
+                    }
+                  ],
+                  skills: [
+                    "HTML",
+                    "JavaScript",
+                    "Next.js",
+                    "SQL",
+                    "NoSQL",
+                    "CSS",
+                    "TypeScript",
+                    "Node.js",
+                    "Nest.js",
+                    "Tailwind CSS",
+                    "React.js",
+                    "Express.js",
+                    "Firebase",
+                    "MongoDB",
+                    "MERN",
+                    "OAuth2",
+                    "JWT",
+                    "Role-based access control (RBAC)",
+                    "WebSockets",
+                    "CI/CD",
+                    "Docker",
+                    "AWS",
+                    "GitHub Actions",
+                    "Clean Code",
+                    "Backend Architecture"
+                  ],
+                  certifications: [],
+                  languages: [
+                    "Arabic (Native)",
+                    "English (Conversational)"
+                  ]
+                },
+                analysis: {
+                  score: 78.1,
+                  seniorityLevel: "Mid-level",
+                  recommendation: "Recommended",
+                  insights: {
+                    strengths: [
+                      "Strong TypeScript full-stack profile (Node.js/Express, React/Next.js) with real product delivery",
+                      "Security-oriented backend work (OAuth2/JWT, RBAC) and performance impact (reported ~25% latency reduction)",
+                      "Real-time systems exposure via WebSockets and monitoring use cases",
+                      "Modern delivery practices (CI/CD, Docker, AWS, GitHub Actions)",
+                      "Teaching/mentoring experience indicating communication and leadership potential"
+                    ],
+                    weaknesses: [
+                      "Education graduation year not provided; limited timeline detail for overall 3 years of experience claim",
+                      "No public portfolio links (LinkedIn/GitHub) provided to verify projects/code quality",
+                      "Few quantified outcomes beyond one latency metric; project impacts could be more measurable (users, revenue, scale, uptime)"
+                    ]
+                  }
+                },
+                ai_insights: {
+                  matched_job_titles: [
+                    "Full Stack Developer (TypeScript/Next.js)",
+                    "Backend Developer (Node.js/Express/NestJS)",
+                    "MERN Stack Developer",
+                    "Fintech Backend Engineer (Node.js)",
+                    "Real-time Web Applications Engineer (WebSockets)",
+                    "Technical Instructor / Backend Mentor"
+                  ],
+                  ai_thought:
+                    "Candidate presents as a mid-level TypeScript full-stack engineer with practical delivery across fintech and platform-style products (payments, real estate/marketing platforms), plus exposure to security, real-time features, and DevOps basics (CI/CD, Docker, AWS). Mentoring/instruction experience is a strong signal for team contribution. Main hiring risk is verification: missing portfolio links and limited quantified results; requesting GitHub, deployment links, and deeper architecture/scale examples would reduce uncertainty."
+                }
+              },
+              refusal: null,
+              annotations: []
+            },
+            finish_reason: "stop"
+          }
+        ],
+        usage: {
+          prompt_tokens: 1636,
+          completion_tokens: 746,
+          total_tokens: 2382,
+          prompt_tokens_details: {
+            cached_tokens: 0,
+            audio_tokens: 0
+          },
+          completion_tokens_details: {
+            reasoning_tokens: 0,
+            audio_tokens: 0,
+            accepted_prediction_tokens: 0,
+            rejected_prediction_tokens: 0
+          }
+        },
+        service_tier: "default",
+        system_fingerprint: null
+      }
+    },
+    error: null
+  }

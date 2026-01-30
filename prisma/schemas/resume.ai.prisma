@@ -1,0 +1,12 @@
+model ResumeProcessingBatch{
+    id Int @id @default(autoincrement())
+    ai_meta Json?
+    input_file_link String
+    input_file_id String @unique
+    output_file_id String?
+    batch_id String? @unique
+    status ResumeAiBatchStatus?
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}

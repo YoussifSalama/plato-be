@@ -1,0 +1,47 @@
+model Resume{
+    id Int @id @default(autoincrement())
+    name String
+    file_type ResumeFileTypes
+    link String
+    parsed String?
+
+    job_id Int
+    job Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+
+    auto_invited Boolean @default(false)
+    auto_shortlisted Boolean @default(false)
+    auto_denied Boolean @default(false)
+
+    invitation Invitation?
+    resume_structured ResumeStructured?
+    resume_analysis ResumeAnalysis?
+}
+
+model ResumeStructured{
+    id Int @id @default(autoincrement())
+    data Json
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+
+    resume_id Int @unique
+    resume Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+}
+
+model ResumeAnalysis {
+  id             Int      @id @default(autoincrement())
+  score          Int
+  seniority_level String
+  recommendation ResumeAnalysisRecommendation
+  insights       Json     
+  createdAt      DateTime @default(now())
+
+  job_id         Int
+  job            Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+  resume_id       Int      @unique
+  resume Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+}

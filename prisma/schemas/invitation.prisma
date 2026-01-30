@@ -1,0 +1,27 @@
+model Invitation{
+    id Int @id @default(autoincrement())
+    
+    to_id Int @unique
+    to Resume @relation(fields:[to_id],references:[id])
+
+    from_id Int
+    from Agency @relation(fields:[from_id],references:[id])
+
+    tokens InvitationToken[]
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model InvitationToken{
+    id Int @id @default(autoincrement())
+    token String
+    expires_at DateTime
+    revoked Boolean @default(false)
+
+    invitation_id Int
+    invitation Invitation @relation(fields:[invitation_id],references:[id])
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}

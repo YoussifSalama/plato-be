@@ -1,0 +1,51 @@
+model Job{
+    id Int @id @default(autoincrement())
+    title String
+    workplace_type JobWorkplaceType
+    employment_type JobEmploymentType
+    seniority_level JobSeniorityLevel
+    industry JobIndustry
+    location String
+    auto_score_matching_threshold Int?
+    auto_email_invite_threshold Int?
+    auto_shortlisted_threshold Int?
+    auto_denied_threshold Int?
+    is_active Boolean @default(true)
+
+    salary_currency JobSalaryCurrency
+    salary_from Decimal
+    salary_to Decimal
+    is_salary_negotiable Boolean @default(false)
+    
+    description String
+    requirements String
+    certifications String
+
+    soft_skills JobSoftSkills[]
+    technical_skills String[]
+    languages Json[]
+
+    agency_id Int
+    agency Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+    resumes Resume[]
+    resume_analyses ResumeAnalysis[]
+
+    job_ai_prompt_id Int? @unique
+    jobAiPrompt JobAiPrompt? @relation(fields:[job_ai_prompt_id],references:[id],onDelete: Cascade)
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model JobAiPrompt{
+    id Int @id @default(autoincrement())
+    target String
+    prompt String
+    evaluation Json?
+    is_active Boolean @default(true)
+
+    job Job?
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
