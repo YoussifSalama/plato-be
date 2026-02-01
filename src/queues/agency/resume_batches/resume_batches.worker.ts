@@ -9,6 +9,7 @@ import { Batch } from "openai/resources";
 import * as path from 'path';
 import * as fs from 'fs';
 import { InvitationService } from "src/modules/agency/invitation/invitation.service";
+import { InboxService } from "src/modules/agency/inbox/inbox.service";
 
 const batchOutputFolder = path.join(process.cwd(), 'uploads', 'resumes_batches_output');
 
@@ -35,11 +36,13 @@ export class ResumeBatchesWorker extends WorkerHost {
     private readonly logger = new Logger(ResumeBatchesWorker.name);
     private readonly openai: OpenAI;
     private readonly jobThresholdCache = new Map<number, JobThresholds | null>();
+    private readonly maxRetryAttempts = 2;
 
     constructor(
         private readonly configService: ConfigService,
         private readonly prisma: PrismaService,
         private readonly invitationService: InvitationService,
+        private readonly inboxService: InboxService,
     ) {
         super();
         this.openai = new OpenAI({
@@ -77,16 +80,182 @@ export class ResumeBatchesWorker extends WorkerHost {
         }
     }
 
+    private resolveBatchContext(aiMeta: unknown) {
+        const meta = (aiMeta ?? {}) as Record<string, unknown>;
+        const batchMeta = (meta.openai_batch ?? {}) as Record<string, unknown>;
+        const metadata = (batchMeta.metadata ?? {}) as Record<string, unknown>;
+        const agencyIdRaw =
+            meta.agency_id ??
+            meta.agencyId ??
+            metadata.agency_id ??
+            metadata.agencyId;
+        const jobIdRaw =
+            meta.job_id ??
+            meta.jobId ??
+            metadata.job_id ??
+            metadata.jobId;
+        const agencyId = typeof agencyIdRaw === "number" ? agencyIdRaw : Number(agencyIdRaw);
+        const jobId = typeof jobIdRaw === "number" ? jobIdRaw : Number(jobIdRaw);
+        return {
+            agencyId: Number.isFinite(agencyId) ? agencyId : null,
+            jobId: Number.isFinite(jobId) ? jobId : null,
+        };
+    }
+
+    private async getBatchRecordByOpenAiId(batchId: string) {
+        return this.prisma.resumeProcessingBatch.findUnique({
+            where: { batch_id: batchId },
+            select: {
+                id: true,
+                ai_meta: true,
+                input_file_id: true,
+                input_file_link: true,
+                batch_id: true,
+            },
+        });
+    }
+
+    private resolveBatchContextFromSources(
+        batch: Batch,
+        aiMeta?: unknown,
+    ) {
+        const recordContext = aiMeta ? this.resolveBatchContext(aiMeta) : { agencyId: null, jobId: null };
+        const metadata = (batch.metadata ?? {}) as Record<string, unknown>;
+        const agencyId =
+            recordContext.agencyId ??
+            (typeof metadata.agency_id === "number" ? metadata.agency_id : Number(metadata.agency_id));
+        const jobId =
+            recordContext.jobId ??
+            (typeof metadata.job_id === "number" ? metadata.job_id : Number(metadata.job_id));
+        return {
+            agencyId: Number.isFinite(agencyId) ? agencyId : null,
+            jobId: Number.isFinite(jobId) ? jobId : null,
+        };
+    }
+
+    private async retryFailedBatch(batch: Batch) {
+        const record = await this.getBatchRecordByOpenAiId(batch.id);
+        if (!record) {
+            this.logger.warn(`ResumeProcessingBatch not found for retry (batchId=${batch.id}).`);
+            return false;
+        }
+        const aiMeta = (record.ai_meta ?? {}) as Record<string, unknown>;
+        const retryCount = typeof aiMeta.retry_count === "number" ? aiMeta.retry_count : 0;
+        if (retryCount >= this.maxRetryAttempts) {
+            this.logger.warn(`Retry limit reached for batch ${batch.id}.`);
+            return false;
+        }
+        if (!record.input_file_id) {
+            this.logger.warn(`Missing input_file_id for retry (batchId=${batch.id}).`);
+            return false;
+        }
+        const context = this.resolveBatchContextFromSources(batch, record.ai_meta);
+        const metadata: Record<string, string> = {
+            retry_of: batch.id,
+        };
+        if (context.jobId) {
+            metadata.job_id = String(context.jobId);
+        }
+        if (context.agencyId) {
+            metadata.agency_id = String(context.agencyId);
+        }
+        const newBatch = await this.openai.batches.create({
+            input_file_id: record.input_file_id,
+            endpoint: "/v1/chat/completions",
+            completion_window: "24h",
+            metadata,
+        });
+        const previousBatchIds = Array.isArray(aiMeta.previous_batch_ids)
+            ? aiMeta.previous_batch_ids
+            : [];
+        await this.prisma.resumeProcessingBatch.update({
+            where: { id: record.id },
+            data: {
+                batch_id: newBatch.id,
+                output_file_id: null,
+                status: ResumeAiBatchStatus.pending,
+                ai_meta: {
+                    ...aiMeta,
+                    retry_count: retryCount + 1,
+                    previous_batch_ids: [...previousBatchIds, batch.id],
+                    openai_batch: JSON.parse(JSON.stringify(newBatch)),
+                },
+            },
+        });
+        this.logger.log(`Retried batch ${batch.id} -> ${newBatch.id} (attempt ${retryCount + 1}).`);
+        return true;
+    }
+
+    private mapOpenAiStatus(status: Batch["status"]) {
+        switch (status) {
+            case "completed":
+                return ResumeAiBatchStatus.completed;
+            case "failed":
+                return ResumeAiBatchStatus.failed;
+            case "cancelled":
+                return ResumeAiBatchStatus.cancelled;
+            case "expired":
+                return ResumeAiBatchStatus.expired;
+            default:
+                return null;
+        }
+    }
+
     /** Update batch metadata in DB */
-    private async updateResumeAiBatch(batch: Batch) {
+    private async updateResumeAiBatch(batch: Batch, status: ResumeAiBatchStatus) {
         const batchMeta = JSON.parse(JSON.stringify(batch));
+        const existing = await this.prisma.resumeProcessingBatch.findUnique({
+            where: { batch_id: batch.id },
+            select: { id: true, ai_meta: true },
+        });
+        if (!existing) {
+            this.logger.warn(`ResumeProcessingBatch not found for batch ${batch.id}.`);
+            return null;
+        }
+        const existingMeta = (existing.ai_meta ?? {}) as Record<string, unknown>;
+        const updatedMeta = {
+            ...existingMeta,
+            openai_batch: batchMeta,
+        };
         await this.prisma.resumeProcessingBatch.update({
             where: { batch_id: batch.id },
             data: {
                 output_file_id: batch.output_file_id,
-                status: ResumeAiBatchStatus.completed,
-                ai_meta: batchMeta,
+                status,
+                ai_meta: updatedMeta,
             },
+        });
+        return { id: existing.id, ai_meta: updatedMeta };
+    }
+
+    private async createInboxForBatchStatus(
+        batchRecord: { id: number; ai_meta: unknown } | null,
+        status: ResumeAiBatchStatus,
+        openAiBatchId?: string,
+        context?: { agencyId?: number | null; jobId?: number | null },
+    ) {
+        if (!batchRecord) return;
+        const { agencyId: metaAgencyId, jobId } = this.resolveBatchContext(batchRecord.ai_meta);
+        const contextAgencyId = context?.agencyId ?? null;
+        const contextJobId = context?.jobId ?? null;
+        const resolvedJobId = Number.isFinite(contextJobId ?? NaN) ? contextJobId : jobId;
+        let agencyId = Number.isFinite(contextAgencyId ?? NaN) ? contextAgencyId : metaAgencyId;
+        if (!agencyId && resolvedJobId) {
+            const thresholds = await this.getJobThresholds(resolvedJobId);
+            agencyId = thresholds?.agencyId ?? null;
+        }
+        if (!agencyId) {
+            this.logger.warn(
+                `Missing agencyId for batch inbox (batchId=${batchRecord.id}, jobId=${resolvedJobId ?? "n/a"}).`,
+            );
+            return;
+        }
+        await this.inboxService.createBatchStatusInbox({
+            agencyId,
+            jobId: resolvedJobId ?? undefined,
+            batchId: batchRecord.id,
+            status,
+            openAiBatchId,
         });
     }
 
@@ -126,7 +295,7 @@ export class ResumeBatchesWorker extends WorkerHost {
         const name = structuredData?.name ?? null;
         const email = structuredData?.contact?.email ?? null;
         if (email) {
-            return { name, email };
+            return { name, email, source: "structured_data" as const };
         }
         const structured = await this.prisma.resumeStructured.findUnique({
             where: { resume_id: resumeId },
@@ -136,6 +305,7 @@ export class ResumeBatchesWorker extends WorkerHost {
         return {
             name: name ?? data?.name ?? null,
             email: data?.contact?.email ?? null,
+            source: data?.contact?.email ? ("resume_structured" as const) : ("missing" as const),
         };
     }
 
@@ -195,18 +365,25 @@ export class ResumeBatchesWorker extends WorkerHost {
             return;
         }
 
-        const { email, name } = await this.resolveRecipientContact(resume.id, structuredData);
+        const { email, name, source } = await this.resolveRecipientContact(resume.id, structuredData);
         if (!email) {
             this.logger.warn(`Missing email for auto invite on resume ${resume.id}.`);
             return;
         }
+        this.logger.log(
+            `Auto invite recipient resolved (resumeId=${resume.id}, email=${email}, source=${source}).`,
+        );
 
-        await this.invitationService.createInvitationFromAuto(
+        const invitation = await this.invitationService.createInvitationFromAuto(
             thresholds.agencyId,
             resume.id,
             email,
             name ?? undefined,
         );
+        if (!invitation?.emailStatus) {
+            this.logger.warn(`Auto invite email not sent for resume ${resume.id}.`);
+            return;
+        }
 
         await this.prisma.resume.update({
             where: { id: resume.id },
@@ -217,6 +394,9 @@ export class ResumeBatchesWorker extends WorkerHost {
     /** Process batch outputs: save structured data and AI analysis */
     private async processBatchOutput(batch: Batch) {
         const outputs = await this.downloadBatchOutput(batch);
+
+        let fallbackJobId: number | null = null;
+        let fallbackAgencyId: number | null = null;
 
         for (const line of outputs) {
             const customId = line.custom_id;
@@ -237,6 +417,13 @@ export class ResumeBatchesWorker extends WorkerHost {
                 },
             });
             if (!resume) continue;
+            if (!fallbackJobId) {
+                fallbackJobId = resume.job_id;
+            }
+            if (!fallbackAgencyId) {
+                const thresholds = await this.getJobThresholds(resume.job_id);
+                fallbackAgencyId = thresholds?.agencyId ?? null;
+            }
 
             const messageContent = response?.choices?.[0]?.message?.content;
             if (!messageContent || typeof messageContent !== "string") {
@@ -304,7 +491,13 @@ export class ResumeBatchesWorker extends WorkerHost {
         }
 
         // Update batch in DB
-        await this.updateResumeAiBatch(batch);
+        const batchRecord = await this.updateResumeAiBatch(batch, ResumeAiBatchStatus.completed);
+        await this.createInboxForBatchStatus(
+            batchRecord,
+            ResumeAiBatchStatus.completed,
+            batch.id,
+            { agencyId: fallbackAgencyId, jobId: fallbackJobId },
+        );
         this.logger.log(`Processed batch ${batch.id} with ${outputs.length} outputs`);
     }
 
@@ -332,6 +525,24 @@ export class ResumeBatchesWorker extends WorkerHost {
         // Process each completed batch
         for (const batch of completedBatches) {
             await this.processBatchOutput(batch);
+        }
+
+        const nonCompletedBatches = relevantBatches.filter(batch => batch.status !== "completed");
+        for (const batch of nonCompletedBatches) {
+            const mappedStatus = this.mapOpenAiStatus(batch.status);
+            if (!mappedStatus || mappedStatus === ResumeAiBatchStatus.completed) continue;
+            if (
+                mappedStatus === ResumeAiBatchStatus.failed ||
+                mappedStatus === ResumeAiBatchStatus.cancelled ||
+                mappedStatus === ResumeAiBatchStatus.expired
+            ) {
+                const retried = await this.retryFailedBatch(batch);
+                if (retried) {
+                    continue;
+                }
+            }
+            const batchRecord = await this.updateResumeAiBatch(batch, mappedStatus);
+            await this.createInboxForBatchStatus(batchRecord, mappedStatus, batch.id);
         }
 
         return completedBatches;

@@ -35,6 +35,7 @@ model Agency{
     teams Team[]
     jobs Job[]
     invitations Invitation[]
+    inboxes Inbox[]
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt

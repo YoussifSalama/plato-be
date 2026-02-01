@@ -19,16 +19,10 @@ export interface IEnvParams {
     apiKey: string;
   };
   sendGrid: {
+    enabled: boolean;
     apiKey: string;
     fromEmail: string;
     fromName: string;
   };
-  mailGun: {
-    enabled: boolean;
-    apiKey: string;
-    domain: string;
-    fromEmail: string;
-    fromName: string;
-  }
   frontendUrl: string;
 }

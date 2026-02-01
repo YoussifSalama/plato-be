@@ -28,7 +28,10 @@ export class ResumeWorker extends WorkerHost {
         })
     }
 
-    private async updateResumeAiBatch(batch: OpenAI.Batch) {
+    private async updateResumeAiBatch(
+        batch: OpenAI.Batch,
+        context: { jobId: number; agencyId: number },
+    ) {
         const { completion_window, metadata, input_file_id, id: batchId } = batch;
         const customerId = metadata?.customer_id ?? null;
         await this.prisma.resumeProcessingBatch.update({
@@ -40,12 +43,17 @@ export class ResumeWorker extends WorkerHost {
                 ai_meta: {
                     completion_window: completion_window,
                     customer_id: customerId,
+                    job_id: context.jobId,
+                    agency_id: context.agencyId,
                 },
                 batch_id: batchId,
             },
         })
     }
-    private async sendBatchCreatedToOpenAi(batchJsonlFileName: string) {
+    private async sendBatchCreatedToOpenAi(
+        batchJsonlFileName: string,
+        context: { jobId: number; agencyId: number },
+    ) {
         const file = await this.openai.files.create({
             file: fs.createReadStream(batchJsonlFileName),
             purpose: "batch",
@@ -55,15 +63,23 @@ export class ResumeWorker extends WorkerHost {
             data: {
                 input_file_link: batchJsonlFileName,
                 input_file_id: file.id,
-                status: 'pending'
+                status: 'pending',
+                ai_meta: {
+                    job_id: context.jobId,
+                    agency_id: context.agencyId,
+                },
             },
         });
         const batch = await this.openai.batches.create({
             input_file_id: file.id,
             endpoint: "/v1/chat/completions",
             completion_window: "24h",
+            metadata: {
+                job_id: String(context.jobId),
+                agency_id: String(context.agencyId),
+            },
         });
-        await this.updateResumeAiBatch(batch);
+        await this.updateResumeAiBatch(batch, context);
         return batch;
     }
 
@@ -134,9 +150,33 @@ export class ResumeWorker extends WorkerHost {
             } = jobRecord;
             const parsedResumes = await this.parseResumes(arrangedSavedResumes);
             this.logger.log(`Parsed ${parsedResumes.length} resume(s).`);
+            const agencyId = jobRecord.agency_id as number | undefined;
+            if (!agencyId) {
+                throw new Error("Agency not found for resume processing.");
+            }
+            const duplicateResumeIds: number[] = [];
+            const uniqueResumes: { id: number; parsed: string }[] = [];
+            for (const parsedResume of parsedResumes) {
+                const duplicate = await this.prisma.resume.findFirst({
+                    where: {
+                        id: { not: parsedResume.id },
+                        job_id: job.data.jobId,
+                        parsed: parsedResume.parsed,
+                    },
+                    select: { id: true },
+                });
+                if (duplicate) {
+                    this.logger.log(
+                        `Deleting duplicate resume ${parsedResume.id} (matches ${duplicate.id}).`,
+                    );
+                    duplicateResumeIds.push(parsedResume.id);
+                    continue;
+                }
+                uniqueResumes.push(parsedResume);
+            }
             const chunkSize = 20;
-            for (let i = 0; i < parsedResumes.length; i += chunkSize) {
-                const chunk = parsedResumes.slice(i, i + chunkSize);
+            for (let i = 0; i < uniqueResumes.length; i += chunkSize) {
+                const chunk = uniqueResumes.slice(i, i + chunkSize);
                 await Promise.all(
                     chunk.map((resume) =>
                         this.prisma.resume.update({
@@ -145,9 +185,24 @@ export class ResumeWorker extends WorkerHost {
                         }),
                     ),
                 );
+            }
+            if (duplicateResumeIds.length > 0) {
+                await this.prisma.resume.deleteMany({
+                    where: { id: { in: duplicateResumeIds } },
+                });
+            }
+            if (uniqueResumes.length === 0) {
+                this.logger.log("No new resumes to analyze after duplicate check.");
+                return;
+            }
+            for (let i = 0; i < uniqueResumes.length; i += chunkSize) {
+                const chunk = uniqueResumes.slice(i, i + chunkSize);
                 const batchJsonlFileName = await this.makeResumesBatchJsonl(chunk, jobContext);
                 this.logger.log(`Created batch JSONL file: ${batchJsonlFileName}`);
-                await this.sendBatchCreatedToOpenAi(batchJsonlFileName);
+                await this.sendBatchCreatedToOpenAi(batchJsonlFileName, {
+                    jobId: job.data.jobId,
+                    agencyId,
+                });
             }
             this.logger.log(`Updated parsed text for ${parsedResumes.length} resume(s).`);
         } catch (error) {

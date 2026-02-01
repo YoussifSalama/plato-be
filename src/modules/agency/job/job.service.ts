@@ -1,21 +1,32 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import OpenAI from "openai";
 import { Prisma } from "@generated/prisma";
 import { PrismaService } from "src/modules/prisma/prisma.service";
 import { PaginationHelper } from "src/shared/helpers/features/pagination";
 import responseFormatter from "src/shared/helpers/response";
+import { buildJobAiPrompt } from "src/shared/ai/agency/prompts/job.prompt";
 import { CreateJobDto } from "./dto/create-job.dto";
 import { CreateJobAiPromptDto } from "./dto/create-job-ai-prompt.dto";
 import { UpdateJobDto } from "./dto/update-job.dto";
 import { GetJobsDto } from "./dto/get-jobs.dto";
 import { SearchJobsDto } from "./dto/search-jobs.dto";
 import { GetJobResumesDto } from "./dto/get-job-resumes.dto";
+import { GenerateJobAiDto } from "./dto/generate-job-ai.dto";
 
 @Injectable()
 export class JobService {
     constructor(
         private readonly prisma: PrismaService,
-        private readonly paginationHelper: PaginationHelper
-    ) { }
+        private readonly paginationHelper: PaginationHelper,
+        private readonly configService: ConfigService
+    ) {
+        this.openai = new OpenAI({
+            apiKey: this.configService.get<string>("env.openai.apiKey") ?? "",
+        });
+    }
+
+    private readonly openai: OpenAI;
 
     private validateSalaryRange(salaryFrom?: number, salaryTo?: number) {
         if (salaryFrom != null && salaryTo != null && salaryFrom > salaryTo) {
@@ -313,6 +324,54 @@ export class JobService {
             data: { job_ai_prompt_id: prompt.id },
         });
         return prompt;
+    }
+
+    async generateJobContent(accountId: number, dto: GenerateJobAiDto) {
+        await this.getAgencyId(accountId);
+        if (!this.configService.get<string>("env.openai.apiKey")) {
+            throw new BadRequestException("OpenAI API key not configured.");
+        }
+        const missingFields = [
+            dto.title ? null : "title",
+            dto.employment_type ? null : "employment_type",
+            dto.workplace_type ? null : "workplace_type",
+            dto.industry ? null : "industry",
+            dto.seniority_level ? null : "seniority_level",
+            dto.location ? null : "location",
+        ].filter(Boolean) as string[];
+        if (missingFields.length > 0) {
+            throw new BadRequestException(
+                `Missing required fields: ${missingFields.join(", ")}`
+            );
+        }
+        const prompt = buildJobAiPrompt(dto);
+        const completion = await this.openai.chat.completions.create({
+            model: "gpt-5.2",
+            messages: [
+                { role: "system", content: prompt },
+                {
+                    role: "user",
+                    content: "Generate the content now using the provided context.",
+                },
+            ],
+            max_completion_tokens: 900,
+        });
+        const content = completion.choices?.[0]?.message?.content ?? "";
+        let parsed: { description?: string; requirements?: string } | null = null;
+        try {
+            parsed = JSON.parse(content);
+        } catch {
+            throw new BadRequestException("AI response parsing failed.");
+        }
+        return responseFormatter(
+            {
+                description: parsed?.description ?? "",
+                requirements: parsed?.requirements ?? "",
+            },
+            undefined,
+            "Job content generated.",
+            200
+        );
     }
 
     async getJobs(accountId: number, getJobsDto: GetJobsDto) {

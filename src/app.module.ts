@@ -10,6 +10,7 @@ import { ResumeBatchesModule } from "./queues/agency/resume_batches/resume_batch
 import { AgencyModule } from './modules/agency/agency/agency.module';
 import { JobModule } from "./modules/agency/job/job.module";
 import { InvitationModule } from './modules/agency/invitation/invitation.module';
+import { InboxModule } from "./modules/agency/inbox/inbox.module";
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { InvitationModule } from './modules/agency/invitation/invitation.module'
     AgencyModule,
     JobModule,
     InvitationModule,
+    InboxModule,
   ],
 })
 export class AppModule { }

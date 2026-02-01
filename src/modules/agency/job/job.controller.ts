@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { JwtAuthGuard } from "src/shared/guards/jwt-auth.guard";
 import { CreateJobDto } from "./dto/create-job.dto";
 import { CreateJobAiPromptDto } from "./dto/create-job-ai-prompt.dto";
+import { GenerateJobAiDto } from "./dto/generate-job-ai.dto";
 import { GetJobsDto } from "./dto/get-jobs.dto";
 import { SearchJobsDto } from "./dto/search-jobs.dto";
 import { UpdateJobDto } from "./dto/update-job.dto";
@@ -116,6 +117,18 @@ export class JobController {
     ) {
         const userId = req.user.id;
         return this.jobService.upsertJobAiPrompt(userId, id, dto);
+    }
+
+    @Post("ai/generate")
+    @ApiOperation({ summary: "Generate job description and requirements" })
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth("access-token")
+    async generateJobContent(
+        @Req() req: { user: AccessTokenPayload },
+        @Body() dto: GenerateJobAiDto,
+    ) {
+        const userId = req.user.id;
+        return this.jobService.generateJobContent(userId, dto);
     }
 
 }

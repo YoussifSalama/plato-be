@@ -7,12 +7,26 @@ import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { ResumeModule } from "./modules/agency/resume/resume.module";
 import { AgencyModule } from "./modules/agency/agency/agency.module";
 import { JobModule } from "./modules/agency/job/job.module";
+import { InvitationModule } from "./modules/agency/invitation/invitation.module";
+import { InboxModule } from "./modules/agency/inbox/inbox.module";
 import { AllExceptionsFilter } from "./shared/filters/all-exceptions.filter";
+import { RedisIoAdapter } from "./shared/websocket/redis-io.adapter";
 
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.enableCors();
+  if (process.env.WEBSOCKET_REDIS_ADAPTER === "true") {
+    const redisPortValue = Number(process.env.REDIS_PORT);
+    const redisPort = Number.isFinite(redisPortValue) ? redisPortValue : 6379;
+    const redisAdapter = new RedisIoAdapter(app);
+    await redisAdapter.connectToRedis({
+      host: process.env.REDIS_HOST ?? "127.0.0.1",
+      port: redisPort,
+      password: process.env.REDIS_PASSWORD ?? undefined,
+    });
+    app.useWebSocketAdapter(redisAdapter);
+  }
   app.useStaticAssets(join(process.cwd(), "uploads"), {
     prefix: "/uploads",
   });
@@ -54,7 +68,7 @@ async function bootstrap() {
     .build();
 
   const agencyDocument = SwaggerModule.createDocument(app, agencyConfig, {
-    include: [ResumeModule, AgencyModule, JobModule],
+    include: [ResumeModule, AgencyModule, JobModule, InvitationModule, InboxModule],
   });
   SwaggerModule.setup('api/agency', app, agencyDocument);
 

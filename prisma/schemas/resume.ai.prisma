@@ -7,6 +7,8 @@ model ResumeProcessingBatch{
     batch_id String? @unique
     status ResumeAiBatchStatus?
 
+    inboxes Inbox[]
+
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }

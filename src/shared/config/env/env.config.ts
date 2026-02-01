@@ -22,18 +22,12 @@ export default registerAs(
             apiKey: process.env.OPENAI_API_KEY ?? '',
         },
         sendGrid: {
+            enabled: process.env.SENDGRID_ENABLED
+                ? process.env.SENDGRID_ENABLED === 'true'
+                : true,
             apiKey: process.env.SENDGRID_API_KEY ?? '',
             fromEmail: process.env.SENDGRID_FROM_EMAIL ?? '',
             fromName: process.env.SENDGRID_FROM_NAME ?? '',
-        },
-        mailGun: {
-            enabled: process.env.MAILGUN_ENABLED
-                ? process.env.MAILGUN_ENABLED === 'true'
-                : true,
-            apiKey: process.env.MAILGUN_API_KEY ?? '',
-            domain: process.env.MAILGUN_DOMAIN ?? '',
-            fromEmail: process.env.MAILGUN_FROM_EMAIL ?? '',
-            fromName: process.env.MAILGUN_FROM_NAME ?? '',
         },
         frontendUrl: process.env.FRONTEND_URL ?? '',
     }),

@@ -1,16 +1,9 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/modules/prisma/prisma.service';
-import { MailGunService } from 'src/shared/services/mailgun.services';
+import { SendGridService } from 'src/shared/services/sendgrid.services';
 import { RandomUuidServie } from 'src/shared/services/randomuuid.services';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
-
-type InvitationEmailOptions = {
-    recipientName?: string;
-    agencyName?: string | null;
-    invitationUrl: string;
-    expiresAt: Date;
-    isAuto?: boolean;
-};
+import invitationTemplate from 'src/shared/templates/invitation/Invitation.template';
 
 @Injectable()
 export class InvitationService {
@@ -19,7 +12,7 @@ export class InvitationService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly randomUuidService: RandomUuidServie,
-        private readonly mailGunService: MailGunService,
+        private readonly sendGridService: SendGridService,
     ) { }
 
     private getFrontendBaseUrl() {
@@ -32,39 +25,6 @@ export class InvitationService {
         }
     }
 
-    private buildInvitationEmail(options: InvitationEmailOptions) {
-        const nameLine = options.recipientName ? `Hi ${options.recipientName},` : "Hello,";
-        const agencyLine = options.agencyName
-            ? `${options.agencyName} has invited you to continue your hiring process.`
-            : "You have been invited to continue your hiring process.";
-        const autoLine = options.isAuto
-            ? "This invitation was sent automatically based on your profile."
-            : undefined;
-        const expiryLine = `This link expires on ${options.expiresAt.toUTCString()}.`;
-        const subject = options.agencyName
-            ? `Invitation from ${options.agencyName}`
-            : "You're invited to Plato Hiring";
-        const textParts = [
-            nameLine,
-            agencyLine,
-            autoLine,
-            `Open invitation: ${options.invitationUrl}`,
-            expiryLine,
-        ].filter(Boolean);
-        const htmlParts = [
-            `<p>${nameLine}</p>`,
-            `<p>${agencyLine}</p>`,
-            autoLine ? `<p>${autoLine}</p>` : "",
-            `<p><a href="${options.invitationUrl}">Open invitation</a></p>`,
-            `<p>${expiryLine}</p>`,
-        ].filter(Boolean);
-        return {
-            subject,
-            text: textParts.join("\n"),
-            html: htmlParts.join(""),
-        };
-    }
-
     private async getAgencyId(accountId: number) {
         const account = await this.prisma.account.findUnique({
             where: { id: accountId },
@@ -74,6 +34,40 @@ export class InvitationService {
             throw new BadRequestException("Agency not found.");
         }
         return account.agency_id;
+    }
+
+    private async getRecipientFromResume(resumeId: number) {
+        const resume = await this.prisma.resume.findUnique({
+            where: { id: resumeId },
+            select: {
+                name: true,
+                resume_structured: {
+                    select: {
+                        data: true,
+                    },
+                },
+            },
+        });
+        if (!resume) {
+            throw new BadRequestException("Resume not found.");
+        }
+        const structured = resume.resume_structured?.data as
+            | {
+                name?: string | null;
+                email?: string | null;
+                Email?: string | null;
+                contact?: { email?: string | null; Email?: string | null } | null;
+            }
+            | null
+            | undefined;
+        const email =
+            structured?.contact?.email ??
+            structured?.contact?.Email ??
+            structured?.email ??
+            structured?.Email ??
+            null;
+        const name = structured?.name ?? resume.name ?? null;
+        return { email, name };
     }
 
     async createInvitation(agencyId: number, resumeId: number) {
@@ -155,30 +149,45 @@ export class InvitationService {
     async createInvitationFromEndpoint(
         agencyId: number,
         resumeId: number,
-        recipientEmail: string,
+        recipientEmail?: string,
         recipientName?: string,
     ) {
         try {
-            if (!recipientEmail) {
+            let resolvedEmail = recipientEmail ?? null;
+            let resolvedName = recipientName ?? null;
+            if (!resolvedEmail || !resolvedName) {
+                const recipient = await this.getRecipientFromResume(resumeId);
+                resolvedEmail = resolvedEmail ?? recipient.email ?? null;
+                resolvedName = resolvedName ?? recipient.name ?? null;
+            }
+            if (!resolvedEmail) {
                 throw new BadRequestException("Recipient email is required.");
             }
+            const emailSource = recipientEmail ? "request" : "resume_structured";
+            this.logger.log(
+                `Invitation recipient resolved (agencyId=${agencyId}, resumeId=${resumeId}, email=${resolvedEmail}, source=${emailSource}).`,
+            );
             const invitation = await this.createInvitation(agencyId, resumeId);
-            const invitationUrl = `${this.getFrontendBaseUrl()}/invitation?token=${invitation.token}`;
-            const emailPayload = this.buildInvitationEmail({
-                recipientName,
+            const frontendBaseUrl = this.getFrontendBaseUrl();
+            const invitationUrl = `${frontendBaseUrl}/invitation?token=${invitation.token}`;
+            const logoUrl = `${frontendBaseUrl}/brand/plato-logo.png`;
+            const emailPayload = invitationTemplate({
+                recipientName: resolvedName ?? undefined,
                 agencyName: invitation.agencyName,
                 invitationUrl,
                 expiresAt: invitation.expiresAt,
+                logoUrl,
             });
-            await this.mailGunService.sendEmail(
-                recipientEmail,
+            const sendResult = await this.sendGridService.sendEmail(
+                resolvedEmail,
                 emailPayload.subject,
                 emailPayload.text,
                 emailPayload.html,
             );
             return {
                 ...invitation,
-                recipientEmail,
+                recipientEmail: resolvedEmail,
+                emailStatus: sendResult ?? undefined,
             };
         } catch (error) {
             this.logger.error(
@@ -200,24 +209,31 @@ export class InvitationService {
                 throw new BadRequestException("Recipient email is required.");
             }
             const invitation = await this.createInvitation(agencyId, resumeId);
-            const invitationUrl = `${this.getFrontendBaseUrl()}/invitation?token=${invitation.token}`;
-            const emailPayload = this.buildInvitationEmail({
+            const frontendBaseUrl = this.getFrontendBaseUrl();
+            const invitationUrl = `${frontendBaseUrl}/invitation?token=${invitation.token}`;
+            const logoUrl = `${frontendBaseUrl}/brand/plato-logo.png`;
+            const emailPayload = invitationTemplate({
                 recipientName,
                 agencyName: invitation.agencyName,
                 invitationUrl,
                 expiresAt: invitation.expiresAt,
                 isAuto: true,
+                logoUrl,
             });
-            await this.mailGunService.sendEmail(
+            const sendResult = await this.sendGridService.sendEmail(
                 recipientEmail,
                 emailPayload.subject,
                 emailPayload.text,
                 emailPayload.html,
             );
+            this.logger.log(
+                `Auto invitation email send result (agencyId=${agencyId}, resumeId=${resumeId}, email=${recipientEmail}, status=${sendResult?.statusCode ?? "skipped"}).`,
+            );
             return {
                 ...invitation,
                 recipientEmail,
                 isAuto: true,
+                emailStatus: sendResult ?? undefined,
             };
         } catch (error) {
             this.logger.error(

@@ -115,6 +115,22 @@ enum JobSoftSkills{
     collaboration
 }
 
+enum InboxType{
+    batch
+}
+
+enum InboxStatus{
+    unread
+    read
+    archived
+}
+
+enum InboxSeverity{
+    info
+    warning
+    error
+}
+
 // --- resume.prisma ---
 model Resume{
     id Int @id @default(autoincrement())
@@ -174,6 +190,8 @@ model ResumeProcessingBatch{
     batch_id String? @unique
     status ResumeAiBatchStatus?
 
+    inboxes Inbox[]
+
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }
@@ -216,6 +234,7 @@ model Agency{
     teams Team[]
     jobs Job[]
     invitations Invitation[]
+    inboxes Inbox[]
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
@@ -306,8 +325,14 @@ model Job{
     description String
     requirements String
     certifications String
+    company_overview String?
+    role_overview String?
+    responsibilities String?
+    nice_to_have String?
+    what_we_offer String?
+    job_benefits String?
 
-    soft_skills JobSoftSkills[]
+    soft_skills String[]
     technical_skills String[]
     languages Json[]
 
@@ -315,6 +340,7 @@ model Job{
     agency Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
     resumes Resume[]
     resume_analyses ResumeAnalysis[]
+    inboxes Inbox[]
 
     job_ai_prompt_id Int? @unique
     jobAiPrompt JobAiPrompt? @relation(fields:[job_ai_prompt_id],references:[id],onDelete: Cascade)
@@ -360,6 +386,28 @@ model InvitationToken{
 
     invitation_id Int
     invitation Invitation @relation(fields:[invitation_id],references:[id])
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+// --- inbox.prisma ---
+model Inbox{
+    id Int @id @default(autoincrement())
+    type InboxType
+    status InboxStatus
+    severity InboxSeverity
+    title String
+    description String?
+
+    agency_id Int
+    agency Agency @relation(fields: [agency_id], references: [id])
+
+    job_id Int?
+    job Job? @relation(fields: [job_id], references: [id])
+
+    batch_id Int?
+    batch ResumeProcessingBatch? @relation(fields: [batch_id], references: [id])
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt

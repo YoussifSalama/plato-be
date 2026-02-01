@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsEmail, IsInt, IsNotEmpty, IsOptional, IsString, Min } from "class-validator";
+import { IsEmail, IsInt, IsOptional, IsString, Min } from "class-validator";
 
 export class CreateInvitationDto {
     @ApiProperty({ example: 123 })
@@ -7,10 +7,10 @@ export class CreateInvitationDto {
     @Min(1)
     resume_id: number;
 
-    @ApiProperty({ example: "candidate@example.com" })
+    @ApiPropertyOptional({ example: "candidate@example.com" })
+    @IsOptional()
     @IsEmail()
-    @IsNotEmpty()
-    recipient_email: string;
+    recipient_email?: string;
 
     @ApiPropertyOptional({ example: "John Doe" })
     @IsOptional()

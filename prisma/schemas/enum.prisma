@@ -102,3 +102,19 @@ enum JobSoftSkills{
     decision_making
     collaboration
 }
+
+enum InboxType{
+    batch
+}
+
+enum InboxStatus{
+    unread
+    read
+    archived
+}
+
+enum InboxSeverity{
+    info
+    warning
+    error
+}

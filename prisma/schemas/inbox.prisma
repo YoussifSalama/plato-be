@@ -1,0 +1,20 @@
+model Inbox{
+    id Int @id @default(autoincrement())
+    type InboxType
+    status InboxStatus
+    severity InboxSeverity
+    title String
+    description String?
+
+    agency_id Int
+    agency Agency @relation(fields: [agency_id], references: [id])
+
+    job_id Int?
+    job Job? @relation(fields: [job_id], references: [id])
+
+    batch_id Int?
+    batch ResumeProcessingBatch? @relation(fields: [batch_id], references: [id])
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}

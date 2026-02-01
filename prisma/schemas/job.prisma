@@ -20,8 +20,14 @@ model Job{
     description String
     requirements String
     certifications String
+    company_overview String?
+    role_overview String?
+    responsibilities String?
+    nice_to_have String?
+    what_we_offer String?
+    job_benefits String?
 
-    soft_skills JobSoftSkills[]
+    soft_skills String[]
     technical_skills String[]
     languages Json[]
 
@@ -29,6 +35,7 @@ model Job{
     agency Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
     resumes Resume[]
     resume_analyses ResumeAnalysis[]
+    inboxes Inbox[]
 
     job_ai_prompt_id Int? @unique
     jobAiPrompt JobAiPrompt? @relation(fields:[job_ai_prompt_id],references:[id],onDelete: Cascade)

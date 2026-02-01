@@ -115,6 +115,22 @@ export class AgencyController {
         return this.agencyService.getAgencyOverview(req.user.id);
     }
 
+    @Get('status')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: "Get agency status (has agency & profile completion)" })
+    async getStatus(@Req() req: { user: AccessTokenPayload }) {
+        return this.agencyService.getAgencyStatus(req.user.id);
+    }
+
+    @Get('dashboard')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: "Get agency dashboard analytics" })
+    async getDashboard(@Req() req: { user: AccessTokenPayload }) {
+        return this.agencyService.getAgencyDashboard(req.user.id);
+    }
+
     @Get('account/me')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')

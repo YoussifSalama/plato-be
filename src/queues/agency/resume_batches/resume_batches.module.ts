@@ -4,6 +4,7 @@ import { ResumeBatchesWorker } from "./resume_batches.worker";
 import { ResumeBatchesCronJob } from "./resume_batches.cronjob";
 import { PrismaService } from "src/modules/prisma/prisma.service";
 import { InvitationModule } from "src/modules/agency/invitation/invitation.module";
+import { InboxModule } from "src/modules/agency/inbox/inbox.module";
 
 @Module({
     imports: [
@@ -11,6 +12,7 @@ import { InvitationModule } from "src/modules/agency/invitation/invitation.modul
             name: "resume_batches_pull_queue"
         }),
         InvitationModule,
+        InboxModule,
     ],
     providers: [ResumeBatchesWorker, ResumeBatchesCronJob, PrismaService],
     exports: [ResumeBatchesWorker, ResumeBatchesCronJob]

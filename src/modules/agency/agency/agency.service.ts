@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from 'src/modules/prisma/prisma.service';
 import { OtpPurpose } from 'src/generated/prisma/client';
 import { BcryptService } from 'src/shared/services/bcrypt.services';
-import { MailGunService } from 'src/shared/services/mailgun.services';
+import { SendGridService } from 'src/shared/services/sendgrid.services';
 import { JwtService } from 'src/shared/services/jwt.services';
 import signupTemplate from 'src/shared/templates/agency/Signup.template';
 import resendVerificationTemplate from 'src/shared/templates/agency/ResendVerification.template';
@@ -26,7 +26,7 @@ export class AgencyService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly bcryptService: BcryptService,
-        private readonly mailGunService: MailGunService,
+        private readonly sendGridService: SendGridService,
         private readonly jwtService: JwtService,
     ) { }
 
@@ -96,13 +96,13 @@ export class AgencyService {
         })
         const displayName = `${f_name} ${l_name}`.trim();
         const verifyEmailUrl = `${this.getFrontendBaseUrl()}/auth/verify?token=${verifyToken}`;
-        await this.mailGunService.sendEmail(
+        await this.sendGridService.sendEmail(
             email,
             "Welcome to Plato Hiring",
             undefined,
             signupTemplate(displayName, verifyEmailUrl),
         );
-        return responseFormatter(account, undefined, "Account created successfully.", 201);
+        return responseFormatter(account, undefined, "Account created successfully, please check your email for verification.", 201);
     }
 
     async login(loginDto: LoginDto) {
@@ -112,14 +112,14 @@ export class AgencyService {
             include: { credential: true },
         });
         if (!account || !account.credential) {
-            throw new BadRequestException("Invalid email or password.");
+            throw new BadRequestException("Wrong credentials.");
         }
         if (!(account as { verified?: boolean }).verified) {
             throw new BadRequestException("Account not verified. Please verify your email.");
         }
         const isValid = await this.bcryptService.bcryptCompare(password, account.credential.password_hash, "password");
         if (!isValid) {
-            throw new BadRequestException("Invalid email or password.");
+            throw new BadRequestException("Wrong credentials.");
         }
 
         const tokenPayload = {
@@ -159,6 +159,7 @@ export class AgencyService {
                 f_name: true,
                 l_name: true,
                 user_name: true,
+                agency_id: true,
             },
         });
         if (!account) {
@@ -172,6 +173,7 @@ export class AgencyService {
                 user_name: account.user_name ?? "",
                 name,
                 email: account.email,
+                agency_id: account.agency_id ?? null,
             },
             undefined,
             "Account data retrieved.",
@@ -280,7 +282,7 @@ export class AgencyService {
 
         const displayName = `${record.account.f_name} ${record.account.l_name}`.trim();
         const verifyEmailUrl = `${this.getFrontendBaseUrl()}/auth/verify?token=${newToken}`;
-        await this.mailGunService.sendEmail(
+        await this.sendGridService.sendEmail(
             record.account.email,
             "Verify your Plato Hiring account",
             undefined,
@@ -410,6 +412,140 @@ export class AgencyService {
         );
     }
 
+    async getAgencyStatus(accountId: number) {
+        const account = await this.prisma.account.findUnique({
+            where: { id: accountId },
+            include: { agency: true },
+        });
+        if (!account) {
+            throw new BadRequestException("Account not found.");
+        }
+        const agency = account.agency;
+        const agencyId = account.agency_id ?? agency?.id ?? null;
+        const hasAgency = Boolean(agencyId);
+        const isComplete = Boolean(
+            agency?.company_name &&
+            agency?.organization_url &&
+            agency?.company_size &&
+            agency?.company_industry
+        );
+        return responseFormatter(
+            { agencyId, hasAgency, isComplete },
+            undefined,
+            "Agency status loaded.",
+            200
+        );
+    }
+
+    async getAgencyDashboard(accountId: number) {
+        const account = await this.prisma.account.findUnique({
+            where: { id: accountId },
+            select: { agency_id: true },
+        });
+        if (!account?.agency_id) {
+            throw new BadRequestException("Agency not found.");
+        }
+        const agencyId = account.agency_id;
+
+        const [
+            totalJobs,
+            activeJobs,
+            totalResumes,
+            analyzedResumes,
+            invitations,
+            autoInvited,
+            autoDenied,
+            autoShortlisted,
+        ] = await Promise.all([
+            this.prisma.job.count({ where: { agency_id: agencyId } }),
+            this.prisma.job.count({ where: { agency_id: agencyId, is_active: true } }),
+            this.prisma.resume.count({ where: { job: { agency_id: agencyId } } }),
+            this.prisma.resumeAnalysis.count({ where: { job: { agency_id: agencyId } } }),
+            this.prisma.invitation.count({ where: { from_id: agencyId } }),
+            this.prisma.resume.count({
+                where: { job: { agency_id: agencyId }, auto_invited: true },
+            }),
+            this.prisma.resume.count({
+                where: { job: { agency_id: agencyId }, auto_denied: true },
+            }),
+            this.prisma.resume.count({
+                where: { job: { agency_id: agencyId }, auto_shortlisted: true },
+            }),
+        ]);
+
+        const endDate = new Date();
+        endDate.setHours(23, 59, 59, 999);
+        const startDate = new Date(endDate);
+        startDate.setDate(startDate.getDate() - 13);
+        startDate.setHours(0, 0, 0, 0);
+
+        const [analysisRows, invitationRows] = await Promise.all([
+            this.prisma.resumeAnalysis.findMany({
+                where: {
+                    job: { agency_id: agencyId },
+                    createdAt: { gte: startDate },
+                },
+                select: { createdAt: true },
+            }),
+            this.prisma.invitation.findMany({
+                where: {
+                    from_id: agencyId,
+                    created_at: { gte: startDate },
+                },
+                select: { created_at: true },
+            }),
+        ]);
+
+        const dateKeys: string[] = [];
+        const byDate: Record<string, { analyzed: number; invited: number }> = {};
+        for (let i = 0; i < 14; i += 1) {
+            const date = new Date(startDate);
+            date.setDate(startDate.getDate() + i);
+            const key = date.toISOString().slice(0, 10);
+            dateKeys.push(key);
+            byDate[key] = { analyzed: 0, invited: 0 };
+        }
+
+        for (const row of analysisRows) {
+            const key = row.createdAt.toISOString().slice(0, 10);
+            if (byDate[key]) {
+                byDate[key].analyzed += 1;
+            }
+        }
+
+        for (const row of invitationRows) {
+            const key = row.created_at.toISOString().slice(0, 10);
+            if (byDate[key]) {
+                byDate[key].invited += 1;
+            }
+        }
+
+        const trend = dateKeys.map((date) => ({
+            date,
+            analyzed: byDate[date]?.analyzed ?? 0,
+            invited: byDate[date]?.invited ?? 0,
+        }));
+
+        return responseFormatter(
+            {
+                totals: {
+                    totalJobs,
+                    activeJobs,
+                    totalResumes,
+                    analyzedResumes,
+                    invitations,
+                    autoInvited,
+                    autoDenied,
+                    autoShortlisted,
+                },
+                trend,
+            },
+            undefined,
+            "Agency dashboard loaded.",
+            200
+        );
+    }
+
     async changePassword(accountId: number, changePasswordDto: ChangePasswordDto) {
         const { oldPassword, newPassword } = changePasswordDto;
         const account = await this.prisma.account.findUnique({
@@ -465,7 +601,7 @@ export class AgencyService {
             },
         });
         const displayName = `${account.f_name} ${account.l_name}`.trim();
-        await this.mailGunService.sendEmail(
+        await this.sendGridService.sendEmail(
             account.email,
             "Reset your Plato Hiring password",
             undefined,

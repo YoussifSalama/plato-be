@@ -29,7 +29,9 @@ export class ResumeService {
                 job: {
                     agency: {
                         account: {
-                            id: userId,
+                            is: {
+                                id: userId,
+                            },
                         },
                     },
                 },
@@ -66,7 +68,9 @@ export class ResumeService {
                     id: jobId,
                     agency: {
                         account: {
-                            id: userId,
+                            is: {
+                                id: userId,
+                            },
                         },
                     },
                 },
@@ -134,7 +138,9 @@ export class ResumeService {
             job: {
                 agency: {
                     account: {
-                        id: userId,
+                        is: {
+                            id: userId,
+                        },
                     },
                 },
             },
@@ -273,7 +279,9 @@ export class ResumeService {
                 job: {
                     agency: {
                         account: {
-                            id: userId,
+                            is: {
+                                id: userId,
+                            },
                         },
                     },
                 },
@@ -318,7 +326,9 @@ export class ResumeService {
                 job: {
                     agency: {
                         account: {
-                            id: userId,
+                            is: {
+                                id: userId,
+                            },
                         },
                     },
                 },
@@ -392,10 +402,20 @@ export class ResumeService {
             throw new BadRequestException("Resume is denied. Remove deny before inviting.");
         }
         const structured = resume.resume_structured?.data as
-            | { name?: string | null; contact?: { email?: string | null } | null }
+            | {
+                name?: string | null;
+                email?: string | null;
+                Email?: string | null;
+                contact?: { email?: string | null } | null
+            }
             | null
             | undefined;
-        const recipientEmail = dto.recipient_email ?? structured?.contact?.email ?? null;
+        const recipientEmail =
+            dto.recipient_email ??
+            structured?.contact?.email ??
+            structured?.email ??
+            structured?.Email ??
+            null;
         if (!recipientEmail) {
             throw new BadRequestException("Recipient email is required.");
         }

@@ -94,6 +94,36 @@ export class CreateJobDto {
     @IsString()
     certifications?: string;
 
+    @ApiPropertyOptional({ example: "About the company and mission." })
+    @IsOptional()
+    @IsString()
+    company_overview?: string;
+
+    @ApiPropertyOptional({ example: "What this role owns and impacts." })
+    @IsOptional()
+    @IsString()
+    role_overview?: string;
+
+    @ApiPropertyOptional({ example: "Key responsibilities and day-to-day tasks." })
+    @IsOptional()
+    @IsString()
+    responsibilities?: string;
+
+    @ApiPropertyOptional({ example: "Nice to have skills or experience." })
+    @IsOptional()
+    @IsString()
+    nice_to_have?: string;
+
+    @ApiPropertyOptional({ example: "What we offer to candidates." })
+    @IsOptional()
+    @IsString()
+    what_we_offer?: string;
+
+    @ApiPropertyOptional({ example: "Benefits and perks." })
+    @IsOptional()
+    @IsString()
+    job_benefits?: string;
+
     @ApiPropertyOptional({ isArray: true, example: ["communication", "leadership"] })
     @IsOptional()
     @IsArray()
