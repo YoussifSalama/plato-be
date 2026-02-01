@@ -3,8 +3,7 @@ import { ResumeService } from './resume.service';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { ApiBearerAuth, ApiBody, ApiConsumes } from '@nestjs/swagger';
-import * as path from 'path';
-import * as fs from 'fs';
+import { ensureUploadsDir } from "src/shared/helpers/storage/uploads-path";
 import { GetResumesDto } from './dto/get-resumes.dto';
 import { GetResumeDetailsDto } from './dto/get-resume-details.dto';
 import { JwtAuthGuard } from 'src/shared/guards/jwt-auth.guard';
@@ -13,11 +12,7 @@ import { ShortlistResumeDto } from './dto/shortlist-resume.dto';
 import { InviteResumeDto } from './dto/invite-resume.dto';
 
 const getResumeFolder = () => {
-    const folder = path.join(process.cwd(), 'uploads', 'resumes');
-    if (!fs.existsSync(folder)) {
-        fs.mkdirSync(folder, { recursive: true });
-    }
-    return folder;
+    return ensureUploadsDir("resumes");
 };
 
 @Controller('resume')

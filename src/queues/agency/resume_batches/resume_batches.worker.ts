@@ -10,8 +10,9 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { InvitationService } from "src/modules/agency/invitation/invitation.service";
 import { InboxService } from "src/modules/agency/inbox/inbox.service";
+import { ensureUploadsDir } from "src/shared/helpers/storage/uploads-path";
 
-const batchOutputFolder = path.join(process.cwd(), 'uploads', 'resumes_batches_output');
+const batchOutputFolder = ensureUploadsDir("resumes_batches_output");
 
 type JobThresholds = {
     agencyId: number;

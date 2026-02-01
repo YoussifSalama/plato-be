@@ -1,6 +1,5 @@
 import { NestFactory } from "@nestjs/core";
 import { NestExpressApplication } from "@nestjs/platform-express";
-import { join } from "path";
 import { AppModule } from "./app.module";
 import { ValidationPipe } from "@nestjs/common";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
@@ -11,6 +10,7 @@ import { InvitationModule } from "./modules/agency/invitation/invitation.module"
 import { InboxModule } from "./modules/agency/inbox/inbox.module";
 import { AllExceptionsFilter } from "./shared/filters/all-exceptions.filter";
 import { RedisIoAdapter } from "./shared/websocket/redis-io.adapter";
+import { ensureUploadsDir } from "./shared/helpers/storage/uploads-path";
 
 
 async function bootstrap() {
@@ -27,7 +27,8 @@ async function bootstrap() {
     });
     app.useWebSocketAdapter(redisAdapter);
   }
-  app.useStaticAssets(join(process.cwd(), "uploads"), {
+  const uploadsDir = ensureUploadsDir();
+  app.useStaticAssets(uploadsDir, {
     prefix: "/uploads",
   });
   app.useGlobalPipes(new ValidationPipe({

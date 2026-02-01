@@ -10,9 +10,10 @@ import { buildResumeAiPromptV1 } from "src/shared/ai/agency/prompts/resume.promp
 import { ConfigService } from "@nestjs/config";
 import OpenAI from "openai";
 import { ResumeAiBatchStatus } from "@generated/prisma";
+import { ensureUploadsDir } from "src/shared/helpers/storage/uploads-path";
 
-const resumesFolder = path.join(process.cwd(), 'uploads', 'resumes');
-const batchJsonlFolder = path.join(process.cwd(), 'uploads', 'resumes_batches_jsonl');
+const resumesFolder = ensureUploadsDir("resumes");
+const batchJsonlFolder = ensureUploadsDir("resumes_batches_jsonl");
 if (!fs.existsSync(batchJsonlFolder)) {
     fs.mkdirSync(batchJsonlFolder, { recursive: true });
 }
