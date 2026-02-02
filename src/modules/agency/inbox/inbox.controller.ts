@@ -50,5 +50,11 @@ export class InboxController {
     ) {
         return this.inboxService.markInboxRead(req.user.id, id);
     }
+
+    @Patch("read-all")
+    @ApiOperation({ summary: "Mark all inbox items as read" })
+    async markAllRead(@Req() req: { user: AccessTokenPayload }) {
+        return this.inboxService.markAllRead(req.user.id);
+    }
 }
 

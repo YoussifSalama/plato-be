@@ -155,6 +155,20 @@ export class InboxService {
         });
     }
 
+    async markAllRead(accountId: number) {
+        const agencyId = await this.getAgencyId(accountId);
+        const result = await this.prisma.inbox.updateMany({
+            where: { agency_id: agencyId, status: InboxStatus.unread },
+            data: { status: InboxStatus.read },
+        });
+        return responseFormatter(
+            { updated: result.count },
+            undefined,
+            "All inbox items marked as read.",
+            200,
+        );
+    }
+
     async createBatchStatusInbox(input: BatchInboxInput) {
         const jobTitle = input.jobId
             ? (await this.prisma.job.findUnique({

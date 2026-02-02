@@ -24,6 +24,11 @@ export class ResumeProducer {
             await this.resumeQueue.add('process-resumes', {
                 arrangedSavedResumes,
                 jobId,
+            }, {
+                attempts: 3,
+                backoff: { type: "exponential", delay: 5000 },
+                removeOnComplete: true,
+                removeOnFail: false,
             });
         } catch (error) {
             this.logger.error('Failed to enqueue resume processing job.', error instanceof Error ? error.stack : undefined);

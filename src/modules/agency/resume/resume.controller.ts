@@ -45,7 +45,7 @@ export class ResumeController {
             }
         },
         limits: {
-            fileSize: 1024 * 1024 * 5,
+            fileSize: 1024 * 1024 * 20,
         }
     }))
     @ApiConsumes('multipart/form-data')

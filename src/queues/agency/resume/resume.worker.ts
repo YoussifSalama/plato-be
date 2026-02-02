@@ -55,33 +55,53 @@ export class ResumeWorker extends WorkerHost {
         batchJsonlFileName: string,
         context: { jobId: number; agencyId: number },
     ) {
-        const file = await this.openai.files.create({
-            file: fs.createReadStream(batchJsonlFileName),
-            purpose: "batch",
-        });
-        this.logger.log(`Uploaded batch file to OpenAI: ${file.id}`);
-        await this.prisma.resumeProcessingBatch.create({
-            data: {
-                input_file_link: batchJsonlFileName,
-                input_file_id: file.id,
-                status: 'pending',
-                ai_meta: {
-                    job_id: context.jobId,
-                    agency_id: context.agencyId,
-                },
-            },
-        });
-        const batch = await this.openai.batches.create({
-            input_file_id: file.id,
-            endpoint: "/v1/chat/completions",
-            completion_window: "24h",
-            metadata: {
-                job_id: String(context.jobId),
-                agency_id: String(context.agencyId),
-            },
-        });
-        await this.updateResumeAiBatch(batch, context);
-        return batch;
+        const maxRetries = 3;
+        const baseDelayMs = 500;
+        const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+        let attempt = 0;
+        while (attempt <= maxRetries) {
+            try {
+                const file = await this.openai.files.create({
+                    file: fs.createReadStream(batchJsonlFileName),
+                    purpose: "batch",
+                });
+                this.logger.log(`Uploaded batch file to OpenAI: ${file.id}`);
+                await this.prisma.resumeProcessingBatch.create({
+                    data: {
+                        input_file_link: batchJsonlFileName,
+                        input_file_id: file.id,
+                        status: 'pending',
+                        ai_meta: {
+                            job_id: context.jobId,
+                            agency_id: context.agencyId,
+                        },
+                    },
+                });
+                const batch = await this.openai.batches.create({
+                    input_file_id: file.id,
+                    endpoint: "/v1/chat/completions",
+                    completion_window: "24h",
+                    metadata: {
+                        job_id: String(context.jobId),
+                        agency_id: String(context.agencyId),
+                    },
+                });
+                await this.updateResumeAiBatch(batch, context);
+                return batch;
+            } catch (error) {
+                if (attempt === maxRetries) {
+                    this.logger.error(
+                        `OpenAI batch creation failed after retries.`,
+                        error instanceof Error ? error.stack : undefined,
+                    );
+                    throw error;
+                }
+                const delay = baseDelayMs * 2 ** attempt + Math.floor(Math.random() * 150);
+                await sleep(delay);
+                attempt += 1;
+            }
+        }
+        throw new Error("OpenAI batch creation failed.");
     }
 
     private async makeResumesBatchJsonl(parsedResumes: { id: number, parsed: string }[], jobContext: Record<string, unknown>) {
@@ -113,11 +133,20 @@ export class ResumeWorker extends WorkerHost {
     }
 
     private async parseResumes(arrangedSavedResumes: ArrangedSavedResume[]) {
-        let parsedResumes: { id: number, parsed: string }[] = [];
-        for (const arrangedSavedResume of arrangedSavedResumes) {
-            const parsed = await this.resumeParserService.parse(path.join(resumesFolder, arrangedSavedResume.link));
-            parsedResumes.push({ id: arrangedSavedResume.id, parsed });
-        }
+        const concurrency = 4;
+        const parsedResumes: { id: number; parsed: string }[] = [];
+        let cursor = 0;
+        const workers = Array.from({ length: concurrency }, async () => {
+            while (cursor < arrangedSavedResumes.length) {
+                const current = arrangedSavedResumes[cursor];
+                cursor += 1;
+                const parsed = await this.resumeParserService.parse(
+                    path.join(resumesFolder, current.link)
+                );
+                parsedResumes.push({ id: current.id, parsed });
+            }
+        });
+        await Promise.all(workers);
         return parsedResumes;
     }
 
