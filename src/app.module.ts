@@ -11,6 +11,11 @@ import { AgencyModule } from './modules/agency/agency/agency.module';
 import { JobModule } from "./modules/agency/job/job.module";
 import { InvitationModule } from './modules/agency/invitation/invitation.module';
 import { InboxModule } from "./modules/agency/inbox/inbox.module";
+import { CandidateModule } from "./modules/candidate/candidate/candidate.module";
+import { RedisModule } from "./modules/redis/redis.module";
+import { InterviewModule } from './modules/candidate/interview/interview.module';
+import { SpeechModule } from "./modules/speech/speech.module";
+import { ProfileModule } from "./modules/candidate/profile/profile.module";
 
 @Module({
   imports: [
@@ -29,6 +34,11 @@ import { InboxModule } from "./modules/agency/inbox/inbox.module";
     JobModule,
     InvitationModule,
     InboxModule,
+    CandidateModule,
+    RedisModule,
+    InterviewModule,
+    SpeechModule,
+    ProfileModule
   ],
 })
 export class AppModule { }

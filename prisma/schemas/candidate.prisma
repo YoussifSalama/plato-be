@@ -1,0 +1,140 @@
+model Candidate{
+    id Int @id @default(autoincrement())
+
+    email String? @unique
+    phone String? @unique
+    candidate_name String?
+    f_name String
+    l_name String
+
+    verified Boolean @default(false)
+    invited Boolean @default(false)
+
+    invitation_id Int? @unique
+    invitation Invitation? @relation(fields: [invitation_id], references: [id], onDelete: SetNull)
+
+    credential_id Int @unique
+    credential CandidateCredential @relation(fields: [credential_id], references: [id], onDelete: Cascade)
+
+    tokens CandidateToken[]
+    invitation_tokens InvitationToken[]
+    profile Profile?
+    verify_tokens CandidateVerifyToken[]
+    otps CandidateOtp[]
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model CandidateToken{
+    id Int @id @default(autoincrement())
+    refresh_token String
+
+    candidate_id Int
+    candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model CandidateVerifyToken{
+    id Int @id @default(autoincrement())
+    token String @unique
+    expires_at DateTime
+    used_at DateTime?
+
+    candidate_id Int
+    candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model CandidateOtp{
+    id Int @id @default(autoincrement())
+    code String
+    purpose OtpPurpose
+    expires_at DateTime
+    used_at DateTime?
+
+    candidate_id Int
+    candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model CandidateCredential{
+    id Int @id @default(autoincrement())
+    password_hash String
+
+    candidate Candidate?
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model Profile{
+    id Int @id @default(autoincrement())
+    avatar String?
+
+    candidate_id Int @unique
+    candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+
+    headline String?
+    summary String?
+    location String?
+
+    experiences Experience[]
+    projects Project[]
+    social_links SocialLinks[]
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model Experience{
+    id Int @id @default(autoincrement())
+    profile_id Int
+    profile Profile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+
+    company_name String
+    from DateTime?
+    to DateTime?
+    current Boolean @default(false)
+    role String
+    description String?
+    field String
+    type ProfileExperienceType
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model Project{
+    id Int @id @default(autoincrement())
+    profile_id Int
+    profile Profile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+
+    name String
+    description String?
+    role String
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model SocialLinks{
+    id Int @id @default(autoincrement())
+    key String
+    value String
+
+    profile_id Int
+    profile Profile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+
+    @@index([profile_id])
+    @@unique([profile_id, key])
+}

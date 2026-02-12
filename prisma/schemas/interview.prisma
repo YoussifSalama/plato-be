@@ -1,0 +1,47 @@
+model InterviewResources{
+    id Int @id @default(autoincrement())
+
+    agency_id Int
+    agency Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+
+    job_id Int
+    job Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+    resume_id Int
+    resume Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+
+    invitation_token_id Int @unique
+    invitation_token InvitationToken @relation(fields: [invitation_token_id], references: [id], onDelete: Cascade)
+
+    language String @default("ar")
+
+    agency_snapshot Json
+    job_snapshot Json
+    resume_snapshot Json
+    prepared_questions String[]
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+
+    @@index([agency_id])
+    @@index([job_id])
+    @@index([resume_id])
+    @@index([invitation_token_id])
+}
+
+model InterviewSession{
+    id Int @id @default(autoincrement())
+
+    invitation_token_id Int @unique
+    invitation_token InvitationToken @relation(fields: [invitation_token_id], references: [id], onDelete: Cascade)
+
+    language String @default("ar")
+    status String @default("active")
+
+    qa_log Json
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+
+    @@index([invitation_token_id])
+}

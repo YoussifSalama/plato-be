@@ -118,3 +118,22 @@ enum InboxSeverity{
     warning
     error
 }
+
+enum InvitationTokenStatus{
+    valid
+    in_use
+    invalid
+}
+
+enum ProfileExperienceType{
+    remote
+    hybrid
+    on_site
+    full_time
+    part_time
+    contract
+    internship
+    freelance
+    temporary
+    volunteer
+}

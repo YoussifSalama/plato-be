@@ -24,5 +24,10 @@ export interface IEnvParams {
     fromEmail: string;
     fromName: string;
   };
+  twilio: {
+    accountSid: string;
+    authToken: string;
+    phoneNumber: string;
+  };
   frontendUrl: string;
 }

@@ -10,6 +10,8 @@ const schemas = [
     'job.prisma',
     'invitation.prisma',
     'inbox.prisma',
+    'candidate.prisma',
+    'interview.prisma',
 ];
 const schemasDir = path.join(__dirname, 'schemas');
 

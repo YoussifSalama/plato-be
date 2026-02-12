@@ -8,10 +8,12 @@ import { AgencyModule } from "./modules/agency/agency/agency.module";
 import { JobModule } from "./modules/agency/job/job.module";
 import { InvitationModule } from "./modules/agency/invitation/invitation.module";
 import { InboxModule } from "./modules/agency/inbox/inbox.module";
+import { CandidateModule } from "./modules/candidate/candidate/candidate.module";
 import { AllExceptionsFilter } from "./shared/filters/all-exceptions.filter";
 import { RedisIoAdapter } from "./shared/websocket/redis-io.adapter";
 import { ensureUploadsDir } from "./shared/helpers/storage/uploads-path";
-
+import { InterviewModule } from "./modules/candidate/interview/interview.module";
+import { SpeechModule } from "./modules/speech/speech.module";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -57,6 +59,9 @@ async function bootstrap() {
 
   const candidateDocument = SwaggerModule.createDocument(app, candidate, {
     include: [
+      CandidateModule,
+      InterviewModule,
+      SpeechModule,
     ],
   });
   SwaggerModule.setup('api/candidate', app, candidateDocument);

@@ -131,6 +131,25 @@ enum InboxSeverity{
     error
 }
 
+enum InvitationTokenStatus{
+    valid
+    in_use
+    invalid
+}
+
+enum ProfileExperienceType{
+    remote
+    hybrid
+    on_site
+    full_time
+    part_time
+    contract
+    internship
+    freelance
+    temporary
+    volunteer
+}
+
 // --- resume.prisma ---
 model Resume{
     id Int @id @default(autoincrement())
@@ -152,6 +171,7 @@ model Resume{
     invitation Invitation?
     resume_structured ResumeStructured?
     resume_analysis ResumeAnalysis?
+    interview_resources InterviewResources[]
 }
 
 model ResumeStructured{
@@ -235,6 +255,7 @@ model Agency{
     jobs Job[]
     invitations Invitation[]
     inboxes Inbox[]
+    interview_resources InterviewResources[]
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
@@ -341,6 +362,8 @@ model Job{
     resumes Resume[]
     resume_analyses ResumeAnalysis[]
     inboxes Inbox[]
+    invitations Invitation[]
+    interview_resources InterviewResources[]
 
     job_ai_prompt_id Int? @unique
     jobAiPrompt JobAiPrompt? @relation(fields:[job_ai_prompt_id],references:[id],onDelete: Cascade)
@@ -372,6 +395,10 @@ model Invitation{
     from_id Int
     from Agency @relation(fields:[from_id],references:[id])
 
+    job_id Int
+    job Job @relation(fields:[job_id],references:[id], onDelete: Cascade)
+
+    candidate Candidate?
     tokens InvitationToken[]
 
     created_at DateTime @default(now())
@@ -383,9 +410,15 @@ model InvitationToken{
     token String
     expires_at DateTime
     revoked Boolean @default(false)
+    status InvitationTokenStatus @default(valid)
 
     invitation_id Int
     invitation Invitation @relation(fields:[invitation_id],references:[id])
+
+    candidate_id Int?
+    candidate Candidate? @relation(fields: [candidate_id], references: [id], onDelete: SetNull)
+    interview_resource InterviewResources?
+    interview_session InterviewSession?
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
@@ -411,4 +444,195 @@ model Inbox{
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
+}
+
+// --- candidate.prisma ---
+model Candidate{
+    id Int @id @default(autoincrement())
+
+    email String? @unique
+    phone String? @unique
+    candidate_name String?
+    f_name String
+    l_name String
+
+    verified Boolean @default(false)
+    invited Boolean @default(false)
+
+    invitation_id Int? @unique
+    invitation Invitation? @relation(fields: [invitation_id], references: [id], onDelete: SetNull)
+
+    credential_id Int @unique
+    credential CandidateCredential @relation(fields: [credential_id], references: [id], onDelete: Cascade)
+
+    tokens CandidateToken[]
+    invitation_tokens InvitationToken[]
+    profile Profile?
+    verify_tokens CandidateVerifyToken[]
+    otps CandidateOtp[]
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model CandidateToken{
+    id Int @id @default(autoincrement())
+    refresh_token String
+
+    candidate_id Int
+    candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model CandidateVerifyToken{
+    id Int @id @default(autoincrement())
+    token String @unique
+    expires_at DateTime
+    used_at DateTime?
+
+    candidate_id Int
+    candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model CandidateOtp{
+    id Int @id @default(autoincrement())
+    code String
+    purpose OtpPurpose
+    expires_at DateTime
+    used_at DateTime?
+
+    candidate_id Int
+    candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model CandidateCredential{
+    id Int @id @default(autoincrement())
+    password_hash String
+
+    candidate Candidate?
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model Profile{
+    id Int @id @default(autoincrement())
+    avatar String?
+
+    candidate_id Int @unique
+    candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+
+    headline String?
+    summary String?
+    location String?
+
+    experiences Experience[]
+    projects Project[]
+    social_links SocialLinks[]
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model Experience{
+    id Int @id @default(autoincrement())
+    profile_id Int
+    profile Profile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+
+    company_name String
+    from DateTime?
+    to DateTime?
+    current Boolean @default(false)
+    role String
+    description String?
+    field String
+    type ProfileExperienceType
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model Project{
+    id Int @id @default(autoincrement())
+    profile_id Int
+    profile Profile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+
+    name String
+    description String?
+    role String
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model SocialLinks{
+    id Int @id @default(autoincrement())
+    key String
+    value String
+
+    profile_id Int
+    profile Profile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+
+    @@index([profile_id])
+    @@unique([profile_id, key])
+}
+
+// --- interview.prisma ---
+model InterviewResources{
+    id Int @id @default(autoincrement())
+
+    agency_id Int
+    agency Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+
+    job_id Int
+    job Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+    resume_id Int
+    resume Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+
+    invitation_token_id Int @unique
+    invitation_token InvitationToken @relation(fields: [invitation_token_id], references: [id], onDelete: Cascade)
+
+    language String @default("ar")
+
+    agency_snapshot Json
+    job_snapshot Json
+    resume_snapshot Json
+    prepared_questions String[]
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+
+    @@index([agency_id])
+    @@index([job_id])
+    @@index([resume_id])
+    @@index([invitation_token_id])
+}
+
+model InterviewSession{
+    id Int @id @default(autoincrement())
+
+    invitation_token_id Int @unique
+    invitation_token InvitationToken @relation(fields: [invitation_token_id], references: [id], onDelete: Cascade)
+
+    language String @default("ar")
+    status String @default("active")
+
+    qa_log Json
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+
+    @@index([invitation_token_id])
 }

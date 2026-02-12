@@ -7,6 +7,10 @@ model Invitation{
     from_id Int
     from Agency @relation(fields:[from_id],references:[id])
 
+    job_id Int
+    job Job @relation(fields:[job_id],references:[id], onDelete: Cascade)
+
+    candidate Candidate?
     tokens InvitationToken[]
 
     created_at DateTime @default(now())
@@ -18,9 +22,15 @@ model InvitationToken{
     token String
     expires_at DateTime
     revoked Boolean @default(false)
+    status InvitationTokenStatus @default(valid)
 
     invitation_id Int
     invitation Invitation @relation(fields:[invitation_id],references:[id])
+
+    candidate_id Int?
+    candidate Candidate? @relation(fields: [candidate_id], references: [id], onDelete: SetNull)
+    interview_resource InterviewResources?
+    interview_session InterviewSession?
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt

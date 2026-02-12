@@ -18,6 +18,7 @@ model Resume{
     invitation Invitation?
     resume_structured ResumeStructured?
     resume_analysis ResumeAnalysis?
+    interview_resources InterviewResources[]
 }
 
 model ResumeStructured{

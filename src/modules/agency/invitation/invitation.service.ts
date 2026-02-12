@@ -1,9 +1,11 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/modules/prisma/prisma.service';
+import { Prisma } from "@generated/prisma";
 import { SendGridService } from 'src/shared/services/sendgrid.services';
 import { RandomUuidServie } from 'src/shared/services/randomuuid.services';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
 import invitationTemplate from 'src/shared/templates/invitation/Invitation.template';
+import responseFormatter from 'src/shared/helpers/response';
 
 @Injectable()
 export class InvitationService {
@@ -70,12 +72,21 @@ export class InvitationService {
         return { email, name };
     }
 
-    async createInvitation(agencyId: number, resumeId: number) {
+    private async getCandidateIdByEmail(email?: string | null) {
+        if (!email) return null;
+        const candidate = await this.prisma.candidate.findFirst({
+            where: { email },
+            select: { id: true },
+        });
+        return candidate?.id ?? null;
+    }
+
+    async createInvitation(agencyId: number, resumeId: number, candidateId?: number | null) {
         const { token, expires_at } = this.randomUuidService.generateInvitationToken(2);
         return this.prisma.$transaction(async (tx) => {
             const resume = await tx.resume.findUnique({
                 where: { id: resumeId },
-                select: { id: true },
+                select: { id: true, job_id: true },
             });
             if (!resume) {
                 throw new BadRequestException("Resume not found.");
@@ -112,7 +123,8 @@ export class InvitationService {
                     data: {
                         to_id: resumeId,
                         from_id: agencyId,
-                    },
+                        job_id: resume.job_id,
+                    } as Prisma.InvitationUncheckedCreateInput,
                     select: { id: true },
                 });
                 invitationId = invitation.id;
@@ -123,6 +135,7 @@ export class InvitationService {
                     token,
                     expires_at,
                     invitation_id: invitationId,
+                    candidate_id: candidateId ?? undefined,
                 },
                 select: { token: true, expires_at: true },
             });
@@ -167,7 +180,8 @@ export class InvitationService {
             this.logger.log(
                 `Invitation recipient resolved (agencyId=${agencyId}, resumeId=${resumeId}, email=${resolvedEmail}, source=${emailSource}).`,
             );
-            const invitation = await this.createInvitation(agencyId, resumeId);
+            const candidateId = await this.getCandidateIdByEmail(resolvedEmail);
+            const invitation = await this.createInvitation(agencyId, resumeId, candidateId);
             const frontendBaseUrl = this.getFrontendBaseUrl();
             const invitationUrl = `${frontendBaseUrl}/invitation?token=${invitation.token}`;
             const logoUrl = `${frontendBaseUrl}/brand/plato-logo.png`;
@@ -208,7 +222,8 @@ export class InvitationService {
             if (!recipientEmail) {
                 throw new BadRequestException("Recipient email is required.");
             }
-            const invitation = await this.createInvitation(agencyId, resumeId);
+            const candidateId = await this.getCandidateIdByEmail(recipientEmail);
+            const invitation = await this.createInvitation(agencyId, resumeId, candidateId);
             const frontendBaseUrl = this.getFrontendBaseUrl();
             const invitationUrl = `${frontendBaseUrl}/invitation?token=${invitation.token}`;
             const logoUrl = `${frontendBaseUrl}/brand/plato-logo.png`;
@@ -242,5 +257,45 @@ export class InvitationService {
             );
             throw error;
         }
+    }
+
+    async validateInvitation(token: string) {
+        const invitationToken = await this.prisma.invitationToken.findFirst({
+            where: {
+                token,
+                revoked: false,
+                expires_at: {
+                    gt: new Date(),
+                },
+            },
+            select: {
+                candidate_id: true,
+                invitation: {
+                    select: {
+                        id: true,
+                    },
+                },
+            },
+        });
+        if (!invitationToken) {
+            throw new BadRequestException("Invalid invitation token.");
+        }
+        if (invitationToken.candidate_id) {
+            return responseFormatter(
+                {
+                    status: "used",
+                    candidate_id: invitationToken.candidate_id,
+                },
+                null,
+                "Invitation token already linked to a candidate account.",
+                409,
+            );
+        }
+        return responseFormatter(
+            { status: "valid" },
+            null,
+            "Invitation token is valid.",
+            200,
+        );
     }
 }
