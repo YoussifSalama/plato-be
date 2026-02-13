@@ -60,18 +60,23 @@ export class CandidateResumeService {
             }
         }
 
-        await this.prisma.profile.upsert({
-            where: { candidate_id: candidateId },
-            create: {
-                candidate_id: candidateId,
-                resume_link: resumeLink,
-                resume_parsed: structuredData,
-            },
-            update: {
-                resume_link: resumeLink,
-                resume_parsed: structuredData,
-            },
-        });
+        try {
+            await this.prisma.profile.upsert({
+                where: { candidate_id: candidateId },
+                create: {
+                    candidate_id: candidateId,
+                    resume_link: resumeLink,
+                    resume_parsed: structuredData,
+                },
+                update: {
+                    resume_link: resumeLink,
+                    resume_parsed: structuredData,
+                },
+            });
+        } catch (error) {
+            this.logger.error(`Failed to update profile for candidate ${candidateId}`, error);
+            throw error;
+        }
 
         return {
             cv_url: resumeLink,
