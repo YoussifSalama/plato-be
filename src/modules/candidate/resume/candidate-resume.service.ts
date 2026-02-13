@@ -44,6 +44,22 @@ export class CandidateResumeService {
         // Profile avatar stores: `/uploads/candidate/avatar/${file.filename}`
         const resumeLink = `/uploads/resumes/${file.filename}`;
 
+        // Check if there is an existing resume and delete it
+        const currentProfile = await this.prisma.profile.findUnique({
+            where: { candidate_id: candidateId },
+            select: { resume_link: true },
+        });
+
+        if (currentProfile?.resume_link) {
+            try {
+                const oldFilePath = path.join(process.cwd(), currentProfile.resume_link);
+                const fs = await import('fs/promises');
+                await fs.unlink(oldFilePath);
+            } catch (error) {
+                this.logger.warn(`Failed to delete old resume file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+        }
+
         await this.prisma.profile.upsert({
             where: { candidate_id: candidateId },
             create: {

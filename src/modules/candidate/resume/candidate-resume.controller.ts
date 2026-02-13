@@ -2,6 +2,7 @@ import {
     Controller,
     Delete,
     Get,
+    Patch,
     Post,
     Req,
     UploadedFile,
@@ -25,10 +26,10 @@ const getCandidateResumeFolder = () => ensureUploadsDir('resumes');
 export class CandidateResumeController {
     constructor(private readonly candidateResumeService: CandidateResumeService) { }
 
-    @Post()
+    @Patch()
     @ApiBearerAuth('access-token')
     @UseGuards(CandidateJwtAuthGuard)
-    @ApiOperation({ summary: 'Upload and parse resume' })
+    @ApiOperation({ summary: 'Upload or replace resume' })
     @ApiConsumes('multipart/form-data')
     @ApiBody({
         schema: {
@@ -82,13 +83,5 @@ export class CandidateResumeController {
     @ApiOperation({ summary: 'Get resume info (cv_url and cv_name)' })
     async getResumeInfo(@Req() req: { user: AccessTokenPayload }) {
         return this.candidateResumeService.getResumeInfo(req.user.id);
-    }
-
-    @Delete()
-    @ApiBearerAuth('access-token')
-    @UseGuards(CandidateJwtAuthGuard)
-    @ApiOperation({ summary: 'Delete resume' })
-    async deleteResume(@Req() req: { user: AccessTokenPayload }) {
-        return this.candidateResumeService.deleteResume(req.user.id);
     }
 }
