@@ -7,9 +7,10 @@ import { JwtService } from "src/shared/services/jwt.services";
 import { CandidateJwtAuthGuard } from "src/shared/guards/candidate-jwt-auth.guard";
 import { EmailModule } from "src/shared/services/email.module";
 import { CandidateResumeModule } from "../resume/candidate-resume.module";
+import { JobMatchingModule } from "../job-matching/job-matching.module";
 
 @Module({
-    imports: [PrismaModule, EmailModule, CandidateResumeModule],
+    imports: [PrismaModule, EmailModule, CandidateResumeModule, JobMatchingModule],
     controllers: [CandidateController],
     providers: [CandidateService, BcryptService, JwtService, CandidateJwtAuthGuard],
 })

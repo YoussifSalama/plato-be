@@ -15,6 +15,7 @@ import { ensureUploadsDir } from "./shared/helpers/storage/uploads-path";
 import { InterviewModule } from "./modules/candidate/interview/interview.module";
 import { SpeechModule } from "./modules/speech/speech.module";
 import { CandidateResumeModule } from "./modules/candidate/resume/candidate-resume.module";
+import { JobMatchingModule } from "./modules/candidate/job-matching/job-matching.module";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -64,6 +65,8 @@ async function bootstrap() {
       InterviewModule,
       SpeechModule,
       CandidateResumeModule,
+      JobMatchingModule,
+
     ],
   });
   SwaggerModule.setup('api/candidate', app, candidateDocument);

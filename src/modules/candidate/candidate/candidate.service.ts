@@ -300,6 +300,37 @@ export class CandidateService {
                     candidate_id: candidate.id,
                 },
             });
+
+
+            // Check for existing agency-uploaded resume for this email
+            // Type B User Linking Strategy
+            const existingResume = await tx.resume.findFirst({
+                where: {
+                    resume_structured: {
+                        is: {
+                            data: {
+                                path: ["contact", "email"],
+                                string_contains: email,
+                            }
+                        }
+                    }
+                },
+                orderBy: { created_at: 'desc' },
+                include: { resume_structured: true }
+            });
+
+            if (existingResume && existingResume.resume_structured?.data) {
+                // Link this resume data to the new profile
+                // We copy the structured data to the profile to populate it
+                await tx.profile.update({
+                    where: { candidate_id: candidate.id },
+                    data: {
+                        resume_link: existingResume.link,
+                        resume_parsed: existingResume.resume_structured.data as any,
+                    }
+                });
+            }
+
             return { candidate };
         });
 
