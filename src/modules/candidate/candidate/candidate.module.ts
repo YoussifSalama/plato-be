@@ -6,11 +6,11 @@ import { BcryptService } from "src/shared/services/bcrypt.services";
 import { JwtService } from "src/shared/services/jwt.services";
 import { CandidateJwtAuthGuard } from "src/shared/guards/candidate-jwt-auth.guard";
 import { EmailModule } from "src/shared/services/email.module";
+import { CandidateResumeModule } from "../resume/candidate-resume.module";
 
 @Module({
-    imports: [PrismaModule, EmailModule],
+    imports: [PrismaModule, EmailModule, CandidateResumeModule],
     controllers: [CandidateController],
     providers: [CandidateService, BcryptService, JwtService, CandidateJwtAuthGuard],
 })
 export class CandidateModule { }
-

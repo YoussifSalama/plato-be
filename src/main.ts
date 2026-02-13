@@ -14,6 +14,7 @@ import { RedisIoAdapter } from "./shared/websocket/redis-io.adapter";
 import { ensureUploadsDir } from "./shared/helpers/storage/uploads-path";
 import { InterviewModule } from "./modules/candidate/interview/interview.module";
 import { SpeechModule } from "./modules/speech/speech.module";
+import { CandidateResumeModule } from "./modules/candidate/resume/candidate-resume.module";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -62,6 +63,7 @@ async function bootstrap() {
       CandidateModule,
       InterviewModule,
       SpeechModule,
+      CandidateResumeModule,
     ],
   });
   SwaggerModule.setup('api/candidate', app, candidateDocument);

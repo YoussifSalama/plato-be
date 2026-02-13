@@ -8,4 +8,4 @@ import { ProfileModule } from './profile/profile.module';
   providers: [CandidateService],
   imports: [ProfileModule]
 })
-export class CandidateModule {}
+export class CandidateModule { }

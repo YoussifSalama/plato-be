@@ -533,6 +533,9 @@ model Profile{
     headline String?
     summary String?
     location String?
+    
+    resume_link String?
+    resume_parsed Json?
 
     experiences Experience[]
     projects Project[]
