@@ -2,12 +2,14 @@ import {
     Controller,
     Delete,
     Get,
+    Patch,
     Post,
     Req,
     UploadedFile,
     UseGuards,
     UseInterceptors,
     BadRequestException,
+    Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -25,10 +27,10 @@ const getCandidateResumeFolder = () => ensureUploadsDir('resumes');
 export class CandidateResumeController {
     constructor(private readonly candidateResumeService: CandidateResumeService) { }
 
-    @Post()
+    @Patch()
     @ApiBearerAuth('access-token')
     @UseGuards(CandidateJwtAuthGuard)
-    @ApiOperation({ summary: 'Upload and parse resume' })
+    @ApiOperation({ summary: 'Upload or replace resume' })
     @ApiConsumes('multipart/form-data')
     @ApiBody({
         schema: {
@@ -69,11 +71,21 @@ export class CandidateResumeController {
     async uploadResume(
         @Req() req: { user: AccessTokenPayload },
         @UploadedFile() file: Express.Multer.File,
+        @Query('parse') parse?: string,
     ) {
         if (!file) {
             throw new BadRequestException('File is required');
         }
-        return this.candidateResumeService.parseAndSaveResume(req.user.id, file);
+        const shouldParse = parse !== 'false';
+        return this.candidateResumeService.parseAndSaveResume(req.user.id, file, shouldParse);
+    }
+
+    @Post('parse')
+    @ApiBearerAuth('access-token')
+    @UseGuards(CandidateJwtAuthGuard)
+    @ApiOperation({ summary: 'Trigger parsing for the current resume' })
+    async parseResume(@Req() req: { user: AccessTokenPayload }) {
+        return this.candidateResumeService.parseCurrentResume(req.user.id);
     }
 
     @Get()
@@ -82,13 +94,5 @@ export class CandidateResumeController {
     @ApiOperation({ summary: 'Get resume info (cv_url and cv_name)' })
     async getResumeInfo(@Req() req: { user: AccessTokenPayload }) {
         return this.candidateResumeService.getResumeInfo(req.user.id);
-    }
-
-    @Delete()
-    @ApiBearerAuth('access-token')
-    @UseGuards(CandidateJwtAuthGuard)
-    @ApiOperation({ summary: 'Delete resume' })
-    async deleteResume(@Req() req: { user: AccessTokenPayload }) {
-        return this.candidateResumeService.deleteResume(req.user.id);
     }
 }
