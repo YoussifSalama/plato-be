@@ -23,24 +23,27 @@ export class CandidateResumeService {
         });
     }
 
-    async parseAndSaveResume(candidateId: number, file: Express.Multer.File) {
+    async parseAndSaveResume(candidateId: number, file: Express.Multer.File, shouldParse: boolean = true) {
         if (!file) {
             throw new BadRequestException('File is required');
         }
 
-        const uploadsDir = ensureUploadsDir('resumes');
-        const filePath = path.join(uploadsDir, file.filename);
+        // const uploadsDir = ensureUploadsDir('resumes');
+        // const filePath = path.join(uploadsDir, file.filename);
 
-        // 1. Parse text from file
-        const parsedText = await this.resumeParserService.parse(path.join(process.cwd(), 'uploads/resumes', file.filename));
+        let structuredData: any = undefined;
 
-        // 2. Extract structured data using OpenAI
-        const structuredData = await this.extractStructuredData(parsedText);
+        if (shouldParse) {
+            // 1. Parse text from file
+            const parsedText = await this.resumeParserService.parse(path.join(process.cwd(), 'uploads/resumes', file.filename));
+
+            // 2. Extract structured data using OpenAI
+            structuredData = await this.extractStructuredData(parsedText);
+        }
 
         // 3. Update Profile
         // We store the relative path (or filename) similar to how other files are stored.
         // The resume parser helper takes absolute path but we store relative or filename.
-        // In other places (ResumeService) it seems they store just the filename or relative path.
         // Profile avatar stores: `/uploads/candidate/avatar/${file.filename}`
         const resumeLink = `/uploads/resumes/${file.filename}`;
 
@@ -81,8 +84,37 @@ export class CandidateResumeService {
         return {
             cv_url: resumeLink,
             cv_name: file.filename,
-            ...structuredData,
+            ...(structuredData || {}),
         };
+    }
+
+    async parseCurrentResume(candidateId: number) {
+        const profile = await this.prisma.profile.findUnique({
+            where: { candidate_id: candidateId },
+            select: { resume_link: true },
+        });
+
+        if (!profile || !profile.resume_link) {
+            throw new BadRequestException('No resume found to parse');
+        }
+
+        const filePath = path.join(process.cwd(), profile.resume_link);
+
+        // 1. Parse text from file
+        const parsedText = await this.resumeParserService.parse(filePath);
+
+        // 2. Extract structured data using OpenAI
+        const structuredData = await this.extractStructuredData(parsedText);
+
+        // 3. Update Profile with parsed data
+        await this.prisma.profile.update({
+            where: { candidate_id: candidateId },
+            data: {
+                resume_parsed: structuredData,
+            },
+        });
+
+        return structuredData;
     }
 
     private async extractStructuredData(resumeText: string) {
