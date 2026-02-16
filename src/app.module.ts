@@ -11,6 +11,7 @@ import { AgencyModule } from './modules/agency/agency/agency.module';
 import { JobModule } from "./modules/agency/job/job.module";
 import { InvitationModule } from './modules/agency/invitation/invitation.module';
 import { InboxModule } from "./modules/agency/inbox/inbox.module";
+import { AgencyInterviewModule } from "./modules/agency/interview/interview.module";
 import { CandidateModule } from "./modules/candidate/candidate/candidate.module";
 import { RedisModule } from "./modules/redis/redis.module";
 import { InterviewModule } from './modules/candidate/interview/interview.module';
@@ -34,11 +35,13 @@ import { ProfileModule } from "./modules/candidate/profile/profile.module";
     JobModule,
     InvitationModule,
     InboxModule,
+    AgencyInterviewModule,
     CandidateModule,
     RedisModule,
     InterviewModule,
     SpeechModule,
     ProfileModule
   ],
+  providers: [],
 })
 export class AppModule { }

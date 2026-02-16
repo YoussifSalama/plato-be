@@ -1,0 +1,42 @@
+import { BadRequestException, Controller, Get, Param, ParseIntPipe, Query, Req, UseGuards } from "@nestjs/common";
+import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { JwtAuthGuard } from "src/shared/guards/jwt-auth.guard";
+import { AgencyInterviewService } from "./interview.service";
+import { GetInterviewSessionsDto } from "./dto/get-interview-sessions.dto";
+
+@ApiTags("Agency Interview")
+@Controller("interview")
+export class AgencyInterviewController {
+    constructor(private readonly interviewService: AgencyInterviewService) { }
+
+    @Get("sessions")
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth("access-token")
+    @ApiOperation({ summary: "List agency interview sessions" })
+    async getInterviewSessions(
+        @Query() options: GetInterviewSessionsDto,
+        @Req() req: { user?: { id: number } }
+    ) {
+        const userId = req.user?.id;
+        if (!userId) {
+            throw new BadRequestException("Invalid user");
+        }
+        return this.interviewService.getInterviewSessions(options, userId);
+    }
+
+    @Get("sessions/:id")
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth("access-token")
+    @ApiOperation({ summary: "Get interview session details" })
+    async getInterviewSessionDetails(
+        @Param("id", ParseIntPipe) id: number,
+        @Req() req: { user?: { id: number } }
+    ) {
+        const userId = req.user?.id;
+        if (!userId) {
+            throw new BadRequestException("Invalid user");
+        }
+        return this.interviewService.getInterviewSessionDetails(id, userId);
+    }
+}
+

@@ -32,16 +32,21 @@ model InterviewResources{
 model InterviewSession{
     id Int @id @default(autoincrement())
 
+    agency_id Int
+    agency Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+
     invitation_token_id Int @unique
     invitation_token InvitationToken @relation(fields: [invitation_token_id], references: [id], onDelete: Cascade)
 
     language String @default("ar")
-    status String @default("active")
+    status InterviewSessionStatus @default(active)
+    chunks_directory_name String?
 
     qa_log Json
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 
+    @@index([agency_id])
     @@index([invitation_token_id])
 }

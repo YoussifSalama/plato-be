@@ -10,651 +10,667 @@ datasource db {
 }
 
 // --- enum.prisma ---
-enum ResumeFileTypes {
-  pdf
-  xlsx
+enum ResumeFileTypes{
+    pdf
+    xlsx
 }
 
-enum ResumeAiBatchStatus {
-  completed
-  cancelled
-  expired
-  failed
-  pending
+enum ResumeAiBatchStatus{
+    completed
+    cancelled
+    expired
+    failed
+    pending
 }
 
-enum ResumeAnalysisRecommendation {
-  recommended
-  not_recommended
-  consider
-  highly_recommended
+enum ResumeAnalysisRecommendation{
+    recommended
+    not_recommended
+    consider
+    highly_recommended
 }
 
-enum OtpPurpose {
-  login
-  signup
-  reset
-  change
+enum OtpPurpose{
+    login
+    signup
+    reset
+    change
 }
 
-enum JobWorkplaceType {
-  on_site
-  remote
-  hybrid
+enum JobWorkplaceType{
+    on_site
+    remote
+    hybrid
 }
 
-enum JobEmploymentType {
-  full_time
-  part_time
-  freelance
-  contract
-  internship
+enum JobEmploymentType{
+    full_time
+    part_time
+    freelance
+    contract
+    internship
 }
 
-enum JobIndustry {
-  technology
-  marketing
-  education
-  finance
-  legal
-  healthcare
-  retail
-  manufacturing
-  consulting
-  real_estate
-  media
-  government
-  non_profit
-  construction
-  transportation
-  other
+enum JobIndustry{
+    technology
+    marketing
+    education
+    finance
+    legal
+    healthcare
+    retail
+    manufacturing
+    consulting
+    real_estate
+    media
+    government
+    non_profit
+    construction
+    transportation
+    other
 }
 
-enum JobSeniorityLevel {
-  internship
-  entery_level
-  junior
-  mid_level
-  senior
-  lead
+enum JobSeniorityLevel{
+    internship
+    entery_level
+    junior
+    mid_level
+    senior
+    lead
 }
 
-enum jobInterviewLanguage {
-  no_prefernce
-  arabic
-  english
+enum jobInterviewLanguage{
+    no_prefernce
+    arabic
+    english
 }
 
-enum JobSalaryCurrency {
-  usd
-  egp
+enum JobSalaryCurrency{
+    usd
+    egp
 }
 
-enum JobSoftSkills {
-  communication
-  leadership
-  problem_solving
-  critical_thinking
-  creativity
-  team_work
-  adaptability
-  time_management
-  project_management
-  mentoring
-  public_speaking
-  negotiation
-  conflict_resolution
-  emotional_intelligence
-  strategic_thinking
-  innovation
-  analytical_skills
-  attention_to_detail
-  customer_focus
-  cultural_awareness
-  decision_making
-  collaboration
+enum JobSoftSkills{
+    communication
+    leadership
+    problem_solving
+    critical_thinking
+    creativity
+    team_work
+    adaptability
+    time_management
+    project_management
+    mentoring
+    public_speaking
+    negotiation
+    conflict_resolution
+    emotional_intelligence
+    strategic_thinking
+    innovation
+    analytical_skills
+    attention_to_detail
+    customer_focus
+    cultural_awareness
+    decision_making
+    collaboration
 }
 
-enum InboxType {
-  batch
+enum InboxType{
+    batch
 }
 
-enum InboxStatus {
-  unread
-  read
-  archived
+enum InboxStatus{
+    unread
+    read
+    archived
 }
 
-enum InboxSeverity {
-  info
-  warning
-  error
+enum InboxSeverity{
+    info
+    warning
+    error
 }
 
-enum InvitationTokenStatus {
-  valid
-  in_use
-  invalid
+enum InvitationTokenStatus{
+    valid
+    in_use
+    invalid
 }
 
-enum ProfileExperienceType {
-  remote
-  hybrid
-  on_site
-  full_time
-  part_time
-  contract
-  internship
-  freelance
-  temporary
-  volunteer
+enum ProfileExperienceType{
+    remote
+    hybrid
+    on_site
+    full_time
+    part_time
+    contract
+    internship
+    freelance
+    temporary
+    volunteer
+}
+
+enum InterviewSessionStatus{
+    completed
+    active
+    inactive
+    cancelled
+    postponed
 }
 
 // --- resume.prisma ---
-model Resume {
-  id        Int             @id @default(autoincrement())
-  name      String
-  file_type ResumeFileTypes
-  link      String
-  parsed    String?
+model Resume{
+    id Int @id @default(autoincrement())
+    name String
+    file_type ResumeFileTypes
+    link String
+    parsed String?
 
-  job_id Int
-  job    Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+    job_id Int
+    job Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 
-  auto_invited     Boolean @default(false)
-  auto_shortlisted Boolean @default(false)
-  auto_denied      Boolean @default(false)
+    auto_invited Boolean @default(false)
+    auto_shortlisted Boolean @default(false)
+    auto_denied Boolean @default(false)
 
-  invitation          Invitation?
-  resume_structured   ResumeStructured?
-  resume_analysis     ResumeAnalysis?
-  interview_resources InterviewResources[]
+    invitation Invitation?
+    resume_structured ResumeStructured?
+    resume_analysis ResumeAnalysis?
+    interview_resources InterviewResources[]
 }
 
-model ResumeStructured {
-  id   Int  @id @default(autoincrement())
-  data Json
+model ResumeStructured{
+    id Int @id @default(autoincrement())
+    data Json
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 
-  resume_id Int    @unique
-  resume    Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+    resume_id Int @unique
+    resume Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
 }
 
 model ResumeAnalysis {
-  id              Int                          @id @default(autoincrement())
-  score           Int
+  id             Int      @id @default(autoincrement())
+  score          Int
   seniority_level String
-  recommendation  ResumeAnalysisRecommendation
-  insights        Json
-  createdAt       DateTime                     @default(now())
+  recommendation ResumeAnalysisRecommendation
+  insights       Json     
+  createdAt      DateTime @default(now())
 
-  job_id Int
-  job    Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  job_id         Int
+  job            Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
 
-  resume_id Int    @unique
-  resume    Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+  resume_id       Int      @unique
+  resume Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
 }
 
 // --- resume.ai.prisma ---
-model ResumeProcessingBatch {
-  id              Int                  @id @default(autoincrement())
-  ai_meta         Json?
-  input_file_link String
-  input_file_id   String               @unique
-  output_file_id  String?
-  batch_id        String?              @unique
-  status          ResumeAiBatchStatus?
+model ResumeProcessingBatch{
+    id Int @id @default(autoincrement())
+    ai_meta Json?
+    input_file_link String
+    input_file_id String @unique
+    output_file_id String?
+    batch_id String? @unique
+    status ResumeAiBatchStatus?
 
-  inboxes Inbox[]
+    inboxes Inbox[]
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
 // --- agency.prisma ---
-model Account {
-  id Int @id @default(autoincrement())
+model Account{
+    id Int @id @default(autoincrement())
 
-  email     String @unique
-  f_name    String
-  l_name    String
-  user_name String
+    email String @unique
+    f_name String
+    l_name String
+    user_name String
 
-  verified Boolean @default(false)
+    verified Boolean @default(false)
 
-  agency_id Int?    @unique
-  agency    Agency? @relation(fields: [agency_id], references: [id], onDelete: SetNull)
+    agency_id Int? @unique
+    agency Agency? @relation(fields: [agency_id], references: [id], onDelete: SetNull)
 
-  credential_id Int        @unique
-  credential    Credential @relation(fields: [credential_id], references: [id], onDelete: Cascade)
+    credential_id Int @unique
+    credential Credential @relation(fields: [credential_id], references: [id], onDelete: Cascade)
+    
+    tokens Token[]
+    otps Otp[]
+    verify_account_tokens VerifyAccountToken[]
+    
 
-  tokens                Token[]
-  otps                  Otp[]
-  verify_account_tokens VerifyAccountToken[]
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
-model Agency {
-  id                  Int     @id @default(autoincrement())
-  company_name        String?
-  organization_url    String?
-  company_size        String?
-  company_industry    String?
-  company_description String?
+model Agency{
+    id Int @id @default(autoincrement())
+    company_name String?
+    organization_url String?
+    company_size String?
+    company_industry String?
+    company_description String?
 
-  account             Account?
-  teams               Team[]
-  jobs                Job[]
-  invitations         Invitation[]
-  inboxes             Inbox[]
-  interview_resources InterviewResources[]
+    account Account?
+    teams Team[]
+    jobs Job[]
+    invitations Invitation[]
+    inboxes Inbox[]
+    interview_resources InterviewResources[]
+    interview_sessions InterviewSession[]
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
-model Credential {
-  id            Int    @id @default(autoincrement())
-  password_hash String
+model Credential{
+    id Int @id @default(autoincrement())
+    password_hash String
 
-  account Account?
+    account Account?
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
-model Team {
-  id    Int     @id @default(autoincrement())
-  email String  @unique
-  phone String? @unique
-  name  String?
 
-  agency_id Int
-  agency    Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+model Team{
+    id Int @id @default(autoincrement())
+    email String @unique
+    phone String? @unique
+    name String?
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    agency_id Int
+    agency Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
-model Token {
-  id            Int    @id @default(autoincrement())
-  refresh_token String
+model Token{
+    id Int @id @default(autoincrement())
+    refresh_token String
 
-  account_id Int
-  account    Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
+    account_id Int
+    account Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
-model Otp {
-  id         Int        @id @default(autoincrement())
-  code       String
-  purpose    OtpPurpose
-  expires_at DateTime
-  used_at    DateTime?
+model Otp{
+    id Int @id @default(autoincrement())
+    code String
+    purpose OtpPurpose
+    expires_at DateTime
+    used_at DateTime?
 
-  account_id Int
-  account    Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
+    account_id Int
+    account Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
-model VerifyAccountToken {
-  id         Int       @id @default(autoincrement())
-  token      String    @unique
-  expires_at DateTime
-  used_at    DateTime?
+model VerifyAccountToken{
+    id Int @id @default(autoincrement())
+    token String @unique
+    expires_at DateTime
+    used_at DateTime?
 
-  account_id Int
-  account    Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
+    account_id Int
+    account Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
 // --- job.prisma ---
-model Job {
-  id                            Int               @id @default(autoincrement())
-  title                         String
-  workplace_type                JobWorkplaceType
-  employment_type               JobEmploymentType
-  seniority_level               JobSeniorityLevel
-  industry                      JobIndustry
-  location                      String
-  auto_score_matching_threshold Int?
-  auto_email_invite_threshold   Int?
-  auto_shortlisted_threshold    Int?
-  auto_denied_threshold         Int?
-  is_active                     Boolean           @default(true)
+model Job{
+    id Int @id @default(autoincrement())
+    title String
+    workplace_type JobWorkplaceType
+    employment_type JobEmploymentType
+    seniority_level JobSeniorityLevel
+    industry JobIndustry
+    location String
+    auto_score_matching_threshold Int?
+    auto_email_invite_threshold Int?
+    auto_shortlisted_threshold Int?
+    auto_denied_threshold Int?
+    is_active Boolean @default(true)
 
-  salary_currency      JobSalaryCurrency
-  salary_from          Decimal
-  salary_to            Decimal
-  is_salary_negotiable Boolean           @default(false)
+    salary_currency JobSalaryCurrency
+    salary_from Decimal
+    salary_to Decimal
+    is_salary_negotiable Boolean @default(false)
+    
+    description String
+    requirements String
+    certifications String
+    company_overview String?
+    role_overview String?
+    responsibilities String?
+    nice_to_have String?
+    what_we_offer String?
+    job_benefits String?
 
-  description      String
-  requirements     String
-  certifications   String
-  company_overview String?
-  role_overview    String?
-  responsibilities String?
-  nice_to_have     String?
-  what_we_offer    String?
-  job_benefits     String?
+    soft_skills String[]
+    technical_skills String[]
+    languages Json[]
 
-  soft_skills      String[]
-  technical_skills String[]
-  languages        Json[]
+    agency_id Int
+    agency Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+    resumes Resume[]
+    resume_analyses ResumeAnalysis[]
+    inboxes Inbox[]
+    invitations Invitation[]
+    interview_resources InterviewResources[]
+    job_matches JobMatch[]
 
-  agency_id           Int
-  agency              Agency               @relation(fields: [agency_id], references: [id], onDelete: Cascade)
-  resumes             Resume[]
-  resume_analyses     ResumeAnalysis[]
-  inboxes             Inbox[]
-  invitations         Invitation[]
-  interview_resources InterviewResources[]
+    job_ai_prompt_id Int? @unique
+    jobAiPrompt JobAiPrompt? @relation(fields:[job_ai_prompt_id],references:[id],onDelete: Cascade)
 
-  job_ai_prompt_id Int?         @unique
-  jobAiPrompt      JobAiPrompt? @relation(fields: [job_ai_prompt_id], references: [id], onDelete: Cascade)
-
-  created_at DateTime   @default(now())
-  updated_at DateTime   @updatedAt
-  jobMatches JobMatch[]
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
-model JobAiPrompt {
-  id         Int     @id @default(autoincrement())
-  target     String
-  prompt     String
-  evaluation Json?
-  is_active  Boolean @default(true)
+model JobAiPrompt{
+    id Int @id @default(autoincrement())
+    target String
+    prompt String
+    evaluation Json?
+    is_active Boolean @default(true)
 
-  job Job?
+    job Job?
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model JobMatch{
+    id Int @id @default(autoincrement())
+    candidate_id Int
+    job_id Int
+    match_score Int
+    ai_reasoning String? @db.Text
+    matched_skills String[]
+    missing_skills String[]
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+
+    candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+    job Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+    @@unique([candidate_id, job_id])
+    @@index([candidate_id])
+    @@index([job_id])
 }
 
 // --- invitation.prisma ---
-model Invitation {
-  id Int @id @default(autoincrement())
+model Invitation{
+    id Int @id @default(autoincrement())
+    
+    to_id Int @unique
+    to Resume @relation(fields:[to_id],references:[id])
 
-  to_id Int    @unique
-  to    Resume @relation(fields: [to_id], references: [id])
+    from_id Int
+    from Agency @relation(fields:[from_id],references:[id])
 
-  from_id Int
-  from    Agency @relation(fields: [from_id], references: [id])
+    job_id Int
+    job Job @relation(fields:[job_id],references:[id], onDelete: Cascade)
 
-  job_id Int
-  job    Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+    candidate Candidate?
+    tokens InvitationToken[]
 
-  candidate Candidate?
-  tokens    InvitationToken[]
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
-model InvitationToken {
-  id         Int                   @id @default(autoincrement())
-  token      String
-  expires_at DateTime
-  revoked    Boolean               @default(false)
-  status     InvitationTokenStatus @default(valid)
+model InvitationToken{
+    id Int @id @default(autoincrement())
+    token String
+    expires_at DateTime
+    revoked Boolean @default(false)
+    status InvitationTokenStatus @default(valid)
 
-  invitation_id Int
-  invitation    Invitation @relation(fields: [invitation_id], references: [id])
+    invitation_id Int
+    invitation Invitation @relation(fields:[invitation_id],references:[id])
 
-  candidate_id       Int?
-  candidate          Candidate?          @relation(fields: [candidate_id], references: [id], onDelete: SetNull)
-  interview_resource InterviewResources?
-  interview_session  InterviewSession?
+    candidate_id Int?
+    candidate Candidate? @relation(fields: [candidate_id], references: [id], onDelete: SetNull)
+    interview_resource InterviewResources?
+    interview_session InterviewSession?
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
 // --- inbox.prisma ---
-model Inbox {
-  id          Int           @id @default(autoincrement())
-  type        InboxType
-  status      InboxStatus
-  severity    InboxSeverity
-  title       String
-  description String?
+model Inbox{
+    id Int @id @default(autoincrement())
+    type InboxType
+    status InboxStatus
+    severity InboxSeverity
+    title String
+    description String?
 
-  agency_id Int
-  agency    Agency @relation(fields: [agency_id], references: [id])
+    agency_id Int
+    agency Agency @relation(fields: [agency_id], references: [id])
 
-  job_id Int?
-  job    Job? @relation(fields: [job_id], references: [id])
+    job_id Int?
+    job Job? @relation(fields: [job_id], references: [id])
 
-  batch_id Int?
-  batch    ResumeProcessingBatch? @relation(fields: [batch_id], references: [id])
+    batch_id Int?
+    batch ResumeProcessingBatch? @relation(fields: [batch_id], references: [id])
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
 // --- candidate.prisma ---
-model Candidate {
-  id Int @id @default(autoincrement())
+model Candidate{
+    id Int @id @default(autoincrement())
 
-  email          String? @unique
-  phone          String? @unique
-  candidate_name String?
-  f_name         String
-  l_name         String
+    email String? @unique
+    phone String? @unique
+    candidate_name String?
+    f_name String
+    l_name String
 
-  verified Boolean @default(false)
-  invited  Boolean @default(false)
+    verified Boolean @default(false)
+    invited Boolean @default(false)
 
-  invitation_id Int?        @unique
-  invitation    Invitation? @relation(fields: [invitation_id], references: [id], onDelete: SetNull)
+    invitation_id Int? @unique
+    invitation Invitation? @relation(fields: [invitation_id], references: [id], onDelete: SetNull)
 
-  credential_id Int                 @unique
-  credential    CandidateCredential @relation(fields: [credential_id], references: [id], onDelete: Cascade)
+    credential_id Int @unique
+    credential CandidateCredential @relation(fields: [credential_id], references: [id], onDelete: Cascade)
 
-  tokens            CandidateToken[]
-  invitation_tokens InvitationToken[]
-  profile           Profile?
-  verify_tokens     CandidateVerifyToken[]
-  otps              CandidateOtp[]
+    tokens CandidateToken[]
+    invitation_tokens InvitationToken[]
+    profile Profile?
+    verify_tokens CandidateVerifyToken[]
+    otps CandidateOtp[]
+    job_matches JobMatch[]
 
-  created_at DateTime   @default(now())
-  updated_at DateTime   @updatedAt
-  jobMatches JobMatch[]
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
-model CandidateToken {
-  id            Int    @id @default(autoincrement())
-  refresh_token String
+model CandidateToken{
+    id Int @id @default(autoincrement())
+    refresh_token String
 
-  candidate_id Int
-  candidate    Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+    candidate_id Int
+    candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
-model CandidateVerifyToken {
-  id         Int       @id @default(autoincrement())
-  token      String    @unique
-  expires_at DateTime
-  used_at    DateTime?
+model CandidateVerifyToken{
+    id Int @id @default(autoincrement())
+    token String @unique
+    expires_at DateTime
+    used_at DateTime?
 
-  candidate_id Int
-  candidate    Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+    candidate_id Int
+    candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
-model CandidateOtp {
-  id         Int        @id @default(autoincrement())
-  code       String
-  purpose    OtpPurpose
-  expires_at DateTime
-  used_at    DateTime?
+model CandidateOtp{
+    id Int @id @default(autoincrement())
+    code String
+    purpose OtpPurpose
+    expires_at DateTime
+    used_at DateTime?
 
-  candidate_id Int
-  candidate    Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+    candidate_id Int
+    candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
-model CandidateCredential {
-  id            Int    @id @default(autoincrement())
-  password_hash String
+model CandidateCredential{
+    id Int @id @default(autoincrement())
+    password_hash String
 
-  candidate Candidate?
+    candidate Candidate?
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
-model Profile {
-  id     Int     @id @default(autoincrement())
-  avatar String?
+model Profile{
+    id Int @id @default(autoincrement())
+    avatar String?
+    resume_link String?
+    resume_parsed Json?
 
-  candidate_id Int       @unique
-  candidate    Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+    candidate_id Int @unique
+    candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
 
-  headline String?
-  summary  String?
-  location String?
+    headline String?
+    summary String?
+    location String?
 
-  resume_link   String?
-  resume_parsed Json?
+    experiences Experience[]
+    projects Project[]
+    social_links SocialLinks[]
 
-  experiences  Experience[]
-  projects     Project[]
-  social_links SocialLinks[]
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
-model Experience {
-  id         Int     @id @default(autoincrement())
-  profile_id Int
-  profile    Profile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+model Experience{
+    id Int @id @default(autoincrement())
+    profile_id Int
+    profile Profile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
 
-  company_name String
-  from         DateTime?
-  to           DateTime?
-  current      Boolean               @default(false)
-  role         String
-  description  String?
-  field        String
-  type         ProfileExperienceType
+    company_name String
+    from DateTime?
+    to DateTime?
+    current Boolean @default(false)
+    role String
+    description String?
+    field String
+    type ProfileExperienceType
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
-model Project {
-  id         Int     @id @default(autoincrement())
-  profile_id Int
-  profile    Profile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+model Project{
+    id Int @id @default(autoincrement())
+    profile_id Int
+    profile Profile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
 
-  name        String
-  description String?
-  role        String
+    name String
+    description String?
+    role String
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }
 
-model SocialLinks {
-  id    Int    @id @default(autoincrement())
-  key   String
-  value String
+model SocialLinks{
+    id Int @id @default(autoincrement())
+    key String
+    value String
 
-  profile_id Int
-  profile    Profile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+    profile_id Int
+    profile Profile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 
-  @@unique([profile_id, key])
-  @@index([profile_id])
+    @@index([profile_id])
+    @@unique([profile_id, key])
 }
 
 // --- interview.prisma ---
-model InterviewResources {
-  id Int @id @default(autoincrement())
+model InterviewResources{
+    id Int @id @default(autoincrement())
 
-  agency_id Int
-  agency    Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+    agency_id Int
+    agency Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
 
-  job_id Int
-  job    Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+    job_id Int
+    job Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
 
-  resume_id Int
-  resume    Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+    resume_id Int
+    resume Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
 
-  invitation_token_id Int             @unique
-  invitation_token    InvitationToken @relation(fields: [invitation_token_id], references: [id], onDelete: Cascade)
+    invitation_token_id Int @unique
+    invitation_token InvitationToken @relation(fields: [invitation_token_id], references: [id], onDelete: Cascade)
 
-  language String @default("ar")
+    language String @default("ar")
 
-  agency_snapshot    Json
-  job_snapshot       Json
-  resume_snapshot    Json
-  prepared_questions String[]
+    agency_snapshot Json
+    job_snapshot Json
+    resume_snapshot Json
+    prepared_questions String[]
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 
-  @@index([agency_id])
-  @@index([job_id])
-  @@index([resume_id])
-  @@index([invitation_token_id])
+    @@index([agency_id])
+    @@index([job_id])
+    @@index([resume_id])
+    @@index([invitation_token_id])
 }
 
-model InterviewSession {
-  id Int @id @default(autoincrement())
+model InterviewSession{
+    id Int @id @default(autoincrement())
 
-  invitation_token_id Int             @unique
-  invitation_token    InvitationToken @relation(fields: [invitation_token_id], references: [id], onDelete: Cascade)
+    agency_id Int
+    agency Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
 
-  language String @default("ar")
-  status   String @default("active")
+    invitation_token_id Int @unique
+    invitation_token InvitationToken @relation(fields: [invitation_token_id], references: [id], onDelete: Cascade)
 
-  qa_log Json
+    language String @default("ar")
+    status InterviewSessionStatus @default(active)
+    chunks_directory_name String?
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+    qa_log Json
 
-  @@index([invitation_token_id])
-}
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 
-model JobMatch {
-  id             Int      @id @default(autoincrement())
-  candidate_id   Int
-  job_id         Int
-  match_score    Int
-  ai_reasoning   String?  @db.Text
-  matched_skills String[]
-  missing_skills String[]
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
-
-  candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
-  job       Job       @relation(fields: [job_id], references: [id], onDelete: Cascade)
-
-  @@unique([candidate_id, job_id])
-  @@index([candidate_id])
-  @@index([job_id])
+    @@index([agency_id])
+    @@index([invitation_token_id])
 }

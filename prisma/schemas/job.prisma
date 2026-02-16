@@ -59,3 +59,23 @@ model JobAiPrompt{
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }
+
+model JobMatch{
+    id Int @id @default(autoincrement())
+    candidate_id Int
+    job_id Int
+    match_score Int
+    ai_reasoning String? @db.Text
+    matched_skills String[]
+    missing_skills String[]
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+
+    candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+    job Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+    @@unique([candidate_id, job_id])
+    @@index([candidate_id])
+    @@index([job_id])
+}

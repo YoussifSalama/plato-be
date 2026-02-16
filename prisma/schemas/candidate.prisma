@@ -78,6 +78,8 @@ model CandidateCredential{
 model Profile{
     id Int @id @default(autoincrement())
     avatar String?
+    resume_link String?
+    resume_parsed Json?
 
     candidate_id Int @unique
     candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)

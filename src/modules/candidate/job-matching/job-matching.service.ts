@@ -5,11 +5,12 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { buildJobScoringPrompt } from 'src/shared/ai/candidate/prompts/scoring.prompt';
 
-type MatchedJob = Job & {
+type MatchedJob = {
+    id: number;
     match_score: number;
     matched_skills: string[];
     missing_skills: string[];
-    ai_reasoning?: string;
+    ai_reasoning?: string | null;
 };
 
 @Injectable()

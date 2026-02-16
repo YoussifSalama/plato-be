@@ -1,6 +1,6 @@
 import { IsIn, IsOptional, IsString } from "class-validator";
 
-const voices = ["alloy", "verse", "aria", "sage", "coral"] as const;
+const voices = ["ash", "alloy", "verse", "aria", "sage", "coral"] as const;
 const formats = ["mp3", "wav", "opus", "aac", "flac", "pcm"] as const;
 
 export class SynthesizeDto {

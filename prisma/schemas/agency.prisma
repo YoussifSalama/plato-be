@@ -37,6 +37,7 @@ model Agency{
     invitations Invitation[]
     inboxes Inbox[]
     interview_resources InterviewResources[]
+    interview_sessions InterviewSession[]
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt

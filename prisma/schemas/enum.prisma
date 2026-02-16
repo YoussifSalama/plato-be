@@ -137,3 +137,11 @@ enum ProfileExperienceType{
     temporary
     volunteer
 }
+
+enum InterviewSessionStatus{
+    completed
+    active
+    inactive
+    cancelled
+    postponed
+}
