@@ -69,7 +69,9 @@ export class CandidateController {
         const result = await this.candidateService.verifyAccountToken(query.token);
         if (result.data?.valid) {
             const redirectUrl = this.candidateService.getCandidateFrontendUrl();
-            return res.redirect(redirectUrl);
+            if (redirectUrl) {
+                return res.redirect(redirectUrl);
+            }
         }
         return res.status(200).json({ valid: false });
     }

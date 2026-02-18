@@ -6,6 +6,7 @@ import { RandomUuidServie } from 'src/shared/services/randomuuid.services';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
 import invitationTemplate from 'src/shared/templates/invitation/Invitation.template';
 import responseFormatter from 'src/shared/helpers/response';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class InvitationService {
@@ -15,10 +16,11 @@ export class InvitationService {
         private readonly prisma: PrismaService,
         private readonly randomUuidService: RandomUuidServie,
         private readonly sendGridService: SendGridService,
+        private readonly configService: ConfigService
     ) { }
 
     private getFrontendBaseUrl() {
-        const rawUrl = process.env.FRONTEND_URL ?? "";
+        const rawUrl = this.configService.get<string>('.env.frontendUrlCandidate') || '';
         try {
             const url = new URL(rawUrl);
             return url.origin;

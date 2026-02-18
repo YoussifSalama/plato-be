@@ -35,5 +35,6 @@ export default registerAs(
             phoneNumber: process.env.TWILIO_PHONE_NUMBER ?? '',
         },
         frontendUrl: process.env.FRONTEND_URL ?? '',
+        frontendUrlCandidate: process.env.FRONTEND_URL_CANDIDATE ?? '',
     }),
 );

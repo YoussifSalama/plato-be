@@ -18,6 +18,7 @@ import { SignupDto } from './dto/signup.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { UpdateAgencyDto } from './dto/update-agency.dto';
 import { IJwtProvider } from 'src/shared/types/services/jwt.types';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class AgencyService {
@@ -28,10 +29,11 @@ export class AgencyService {
         private readonly bcryptService: BcryptService,
         private readonly sendGridService: SendGridService,
         private readonly jwtService: JwtService,
+        private readonly configService: ConfigService
     ) { }
 
     private getFrontendBaseUrl() {
-        const rawUrl = process.env.FRONTEND_URL ?? "";
+        const rawUrl = this.configService.get<string>('.env.frontendUrl') || '';
         try {
             const url = new URL(rawUrl);
             return url.origin;

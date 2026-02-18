@@ -115,9 +115,8 @@ export class CandidateService {
     }
 
     getCandidateFrontendUrl() {
-        const explicit = this.configService.get<string>("env.frontendUrl");
-        const fallback = process.env.APPLICANTS_APP_URL ?? process.env.FRONTEND_URL ?? "http://localhost:3002";
-        return explicit || fallback;
+        const rawUrl = this.configService.get<string>("env.frontendUrlCandidate");
+        return rawUrl;
     }
 
     async createFromInvitation(token: string) {

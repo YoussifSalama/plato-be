@@ -30,4 +30,5 @@ export interface IEnvParams {
     phoneNumber: string;
   };
   frontendUrl: string;
+  frontendUrlCandidate: string;
 }
