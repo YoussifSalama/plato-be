@@ -33,7 +33,7 @@ export class AgencyService {
     ) { }
 
     private getFrontendBaseUrl() {
-        const rawUrl = this.configService.get<string>('.env.frontendUrl') || '';
+        const rawUrl = this.configService.get<string>('FRONTEND_URL') || '';
         try {
             const url = new URL(rawUrl);
             return url.origin;

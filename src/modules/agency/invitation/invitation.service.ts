@@ -20,7 +20,7 @@ export class InvitationService {
     ) { }
 
     private getFrontendBaseUrl() {
-        const rawUrl = this.configService.get<string>('.env.frontendUrlCandidate') || '';
+        const rawUrl = this.configService.get<string>('FRONTEND_URL_CANDIDATE') || '';
         try {
             const url = new URL(rawUrl);
             return url.origin;
