@@ -346,7 +346,7 @@ export class JobService {
         }
         const prompt = buildJobAiPrompt(dto);
         const completion = await this.openai.chat.completions.create({
-            model: "gpt-5.2",
+            model: "gpt-4o",
             messages: [
                 { role: "system", content: prompt },
                 {

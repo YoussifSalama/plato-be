@@ -163,7 +163,7 @@ export class InterviewService {
 
     private async requestQuestions(prompt: string): Promise<string[]> {
         const completion = await this.openai.chat.completions.create({
-            model: "gpt-5.2",
+            model: "gpt-4o",
             messages: [{ role: "system", content: prompt }],
         });
         const content = completion.choices?.[0]?.message?.content ?? "";
@@ -249,7 +249,7 @@ export class InterviewService {
 
         const completion = await this.withTimeout(
             this.openai.chat.completions.create({
-                model: "gpt-5.2",
+                model: "gpt-4o",
                 messages: [{ role: "system", content: prompt }],
             }),
             5000,
@@ -355,15 +355,25 @@ export class InterviewService {
         values.forEach((value) => {
             const rawValue = extractString(value);
             if (!rawValue) return;
-            const tokens = rawValue
-                .toLowerCase()
-                .replace(/[^a-z]/g, " ")
-                .split(" ")
-                .filter(Boolean);
-            if (tokens.includes("arabic") || tokens.includes("ar")) {
+            const normalized = rawValue.toLowerCase().trim();
+
+            // Detection for Arabic
+            if (
+                normalized.includes("arabic") ||
+                normalized === "ar" ||
+                normalized.includes("عربي") ||
+                normalized.includes("العربية") ||
+                /[\u0600-\u06FF]/.test(rawValue) // Any Arabic characters
+            ) {
                 languages.add(InterviewLanguage.ar);
             }
-            if (tokens.includes("english") || tokens.includes("en")) {
+
+            // Detection for English
+            if (
+                normalized.includes("english") ||
+                normalized === "en" ||
+                /^[A-Za-z\s]+$/.test(rawValue) && (normalized.includes("eng") || normalized.includes("en"))
+            ) {
                 languages.add(InterviewLanguage.en);
             }
         });
@@ -400,11 +410,13 @@ export class InterviewService {
         }
 
         const availableLanguages = this.resolveInterviewLanguages(invitation.job?.languages);
+        const rawJobLanguages = Array.isArray(invitation.job?.languages) ? invitation.job.languages : [];
         const resolvedAvailable = availableLanguages.length > 0 ? availableLanguages : [];
-        if (resolvedAvailable.length > 1 && !language) {
+
+        if ((resolvedAvailable.length > 1 || rawJobLanguages.length > 1) && !language) {
             return {
                 invitation_token_id: token.id,
-                available_languages: resolvedAvailable,
+                available_languages: resolvedAvailable.length > 0 ? resolvedAvailable : [InterviewLanguage.ar, InterviewLanguage.en],
                 requires_language_choice: true,
                 job_snapshot: this.toJsonSnapshot(invitation.job),
             };
@@ -826,7 +838,7 @@ export class InterviewService {
         return qaLog;
     }
 
-    async createRealtimeSession(model = "gpt-realtime", voice = "ash") {
+    async createRealtimeSession(model = "gpt-4o-realtime-preview", voice = "ash") {
         const apiKey = this.configService.get<string>("env.openai.apiKey") ?? "";
         if (!apiKey) {
             throw new BadRequestException("OpenAI API key is not configured.");

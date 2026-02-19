@@ -214,10 +214,10 @@ export class InterviewController {
         }
     ) {
         const startedAt = Date.now();
-        this.logger.log(`realtime.start model=${body.model ?? "gpt-realtime"}`);
+        this.logger.log(`realtime.start model=${body.model ?? "gpt-4o-realtime-preview"}`);
         try {
             const result = await this.interviewService.createRealtimeSession(
-                body.model ?? "gpt-realtime",
+                body.model ?? "gpt-4o-realtime-preview",
                 body.voice ?? "ash"
             );
             this.logger.log(`realtime.done ms=${Date.now() - startedAt}`);
