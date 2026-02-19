@@ -4,6 +4,7 @@ import { Prisma } from "@generated/prisma";
 import { SendGridService } from 'src/shared/services/sendgrid.services';
 import { RandomUuidServie } from 'src/shared/services/randomuuid.services';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
+import { CreateDirectInvitationDto } from './dto/create-direct-invitation.dto';
 import invitationTemplate from 'src/shared/templates/invitation/Invitation.template';
 import responseFormatter from 'src/shared/helpers/response';
 import { ConfigService } from '@nestjs/config';
@@ -158,6 +159,51 @@ export class InvitationService {
             dto.resume_id,
             dto.recipient_email,
             dto.recipient_name,
+        );
+    }
+
+    async createDirectInvitationForAccount(accountId: number, dto: CreateDirectInvitationDto) {
+        const agencyId = await this.getAgencyId(accountId);
+        return this.createDirectInvitation(agencyId, dto.candidate_id, dto.job_id);
+    }
+
+    async createDirectInvitation(agencyId: number, candidateId: number, jobId: number) {
+        const application = await this.prisma.jobApplication.findUnique({
+            where: {
+                candidate_id_job_id: {
+                    candidate_id: candidateId,
+                    job_id: jobId,
+                },
+            },
+            select: {
+                resume_id: true,
+                candidate: {
+                    select: {
+                        email: true,
+                        f_name: true,
+                        l_name: true
+                    }
+                }
+            },
+        });
+
+        if (!application) {
+            throw new BadRequestException("Candidate has not applied to this job.");
+        }
+
+        const candidateName = `${application.candidate.f_name} ${application.candidate.l_name}`.trim();
+
+        // We can reuse the existing createInvitation logical flow.
+        // However, we need to ensure the invitation email goes to the candidate's account email.
+        // The existing createInvitationFromEndpoint extracts email from resume if not provided.
+        // Since the resume is linked to the application, it should have the candidate's details.
+
+        // Let's rely on createInvitationFromEndpoint but passing the resolved resume_id.
+        return this.createInvitationFromEndpoint(
+            agencyId,
+            application.resume_id,
+            application.candidate.email ?? undefined,
+            candidateName
         );
     }
 

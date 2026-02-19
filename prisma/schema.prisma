@@ -180,6 +180,7 @@ model Resume{
     resume_structured ResumeStructured?
     resume_analysis ResumeAnalysis?
     interview_resources InterviewResources[]
+    application JobApplication?
 }
 
 model ResumeStructured{
@@ -374,6 +375,7 @@ model Job{
     invitations Invitation[]
     interview_resources InterviewResources[]
     job_matches JobMatch[]
+    applications JobApplication[]
 
     job_ai_prompt_id Int? @unique
     jobAiPrompt JobAiPrompt? @relation(fields:[job_ai_prompt_id],references:[id],onDelete: Cascade)
@@ -501,6 +503,7 @@ model Candidate{
     verify_tokens CandidateVerifyToken[]
     otps CandidateOtp[]
     job_matches JobMatch[]
+    applications JobApplication[]
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
@@ -673,4 +676,25 @@ model InterviewSession{
 
     @@index([agency_id])
     @@index([invitation_token_id])
+}
+
+// --- application.prisma ---
+model JobApplication {
+    id Int @id @default(autoincrement())
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+
+    candidate_id Int
+    candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+    
+    job_id Int
+    job Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+    resume_id Int @unique
+    resume Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+
+    @@unique([candidate_id, job_id])
+    @@index([candidate_id])
+    @@index([job_id])
+    @@index([resume_id])
 }

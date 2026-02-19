@@ -22,6 +22,7 @@ model Candidate{
     verify_tokens CandidateVerifyToken[]
     otps CandidateOtp[]
     job_matches JobMatch[]
+    applications JobApplication[]
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt

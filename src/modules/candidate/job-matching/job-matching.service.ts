@@ -11,6 +11,7 @@ type MatchedJob = {
     matched_skills: string[];
     missing_skills: string[];
     ai_reasoning?: string | null;
+    has_applied: boolean;
 };
 
 @Injectable()
@@ -53,31 +54,43 @@ export class JobMatchingService {
         };
     }
 
-    async getSavedMatches(candidateId: number) {
-        const matches = await this.prisma.jobMatch.findMany({
+    private async getAppliedJobIds(candidateId: number): Promise<Set<number>> {
+        const applications = await this.prisma.jobApplication.findMany({
             where: { candidate_id: candidateId },
-            include: {
-                job: {
-                    include: {
-                        agency: {
-                            select: {
-                                company_name: true,
-                                company_industry: true,
-                                company_size: true
+            select: { job_id: true }
+        });
+        return new Set(applications.map(app => app.job_id));
+    }
+
+    async getSavedMatches(candidateId: number) {
+        const [matches, appliedJobIds] = await Promise.all([
+            this.prisma.jobMatch.findMany({
+                where: { candidate_id: candidateId },
+                include: {
+                    job: {
+                        include: {
+                            agency: {
+                                select: {
+                                    company_name: true,
+                                    company_industry: true,
+                                    company_size: true
+                                }
                             }
                         }
                     }
-                }
-            },
-            orderBy: { match_score: 'desc' }
-        });
+                },
+                orderBy: { match_score: 'desc' }
+            }),
+            this.getAppliedJobIds(candidateId)
+        ]);
 
         return matches.map(match => ({
             ...match.job,
             match_score: match.match_score,
             matched_skills: match.matched_skills,
             missing_skills: match.missing_skills,
-            ai_reasoning: match.ai_reasoning || undefined
+            ai_reasoning: match.ai_reasoning || undefined,
+            has_applied: appliedJobIds.has(match.job_id)
         }));
     }
 
@@ -103,11 +116,17 @@ export class JobMatchingService {
     async refreshMatches(candidateId: number) {
         this.logger.log(`Refreshing job matches for candidate ${candidateId}`);
         const matches = await this.computeMatches(candidateId);
+        // Note: saveMatches expects MatchedJob which now has has_applied, 
+        // but prisma create doesn't need has_applied. 
+        // The saveMatches function maps the input carefully so it ignores extra fields if not destructured,
+        // but let's check the map inside saveMatches.
+        // It uses: job_id: match.id, match_score: match.match_score... 
+        // It does NOT try to save has_applied to JobMatch table (which is correct).
         await this.saveMatches(candidateId, matches);
         return matches;
     }
 
-    private async computeMatches(candidateId: number) {
+    private async computeMatches(candidateId: number): Promise<MatchedJob[]> {
         // 1. Fetch Candidate Profile and Resume Data
         const profile = await this.prisma.profile.findUnique({
             where: { candidate_id: candidateId },
@@ -179,6 +198,9 @@ export class JobMatchingService {
             .sort((a, b) => b.heuristic_score - a.heuristic_score)
             .slice(0, 5);
 
+        // Fetch applied jobs efficiently
+        const appliedJobIds = await this.getAppliedJobIds(candidateId);
+
         // 4. AI Re-ranking
         const aiScoredMatches = await Promise.all(topMatches.map(async (job) => {
             try {
@@ -199,18 +221,21 @@ export class JobMatchingService {
                 });
 
                 const content = response.choices[0].message.content;
-                if (!content) return { ...job, match_score: job.heuristic_score };
-
-                const result = JSON.parse(content) as { score: number, reasoning: string };
+                const result = content ? JSON.parse(content) as { score: number, reasoning: string } : { score: job.heuristic_score, reasoning: null };
 
                 return {
                     ...job,
                     match_score: result.score,
-                    ai_reasoning: result.reasoning
+                    ai_reasoning: result.reasoning,
+                    has_applied: appliedJobIds.has(job.id)
                 };
             } catch (error) {
                 this.logger.error(`AI scoring failed for job ${job.id}: ${error instanceof Error ? error.message : error}`);
-                return { ...job, match_score: job.heuristic_score };
+                return {
+                    ...job,
+                    match_score: job.heuristic_score,
+                    has_applied: appliedJobIds.has(job.id)
+                };
             }
         }));
 

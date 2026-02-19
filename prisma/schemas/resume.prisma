@@ -19,6 +19,7 @@ model Resume{
     resume_structured ResumeStructured?
     resume_analysis ResumeAnalysis?
     interview_resources InterviewResources[]
+    application JobApplication?
 }
 
 model ResumeStructured{
