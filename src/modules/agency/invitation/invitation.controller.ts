@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { JwtAuthGuard } from 'src/shared/guards/jwt-auth.guard';
 import { AccessTokenPayload } from 'src/shared/types/services/jwt.types';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
+import { CreateDirectInvitationDto } from './dto/create-direct-invitation.dto';
 import { InvitationService } from './invitation.service';
 import { ValidateInvitationDto } from './dto/validate-invitation.dto';
 
@@ -20,6 +21,17 @@ export class InvitationController {
         @Body() dto: CreateInvitationDto,
     ) {
         return this.invitationService.createInvitationFromEndpointForAccount(req.user.id, dto);
+    }
+
+    @Post("/direct")
+    @ApiBearerAuth("access-token")
+    @UseGuards(JwtAuthGuard)
+    @ApiOperation({ summary: "Directly invite candidate to interview for a job" })
+    async createDirectInvitation(
+        @Req() req: { user: AccessTokenPayload },
+        @Body() dto: CreateDirectInvitationDto,
+    ) {
+        return this.invitationService.createDirectInvitationForAccount(req.user.id, dto);
     }
 
     @Get("/validate")
