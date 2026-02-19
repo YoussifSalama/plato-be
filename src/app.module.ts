@@ -17,6 +17,7 @@ import { RedisModule } from "./modules/redis/redis.module";
 import { InterviewModule } from './modules/candidate/interview/interview.module';
 import { SpeechModule } from "./modules/speech/speech.module";
 import { ProfileModule } from "./modules/candidate/profile/profile.module";
+import { AgencyApplicationModule } from "./modules/agency/application/application.module";
 
 @Module({
   imports: [
@@ -40,7 +41,8 @@ import { ProfileModule } from "./modules/candidate/profile/profile.module";
     RedisModule,
     InterviewModule,
     SpeechModule,
-    ProfileModule
+    ProfileModule,
+    AgencyApplicationModule,
   ],
   providers: [],
 })

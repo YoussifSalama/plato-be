@@ -16,6 +16,8 @@ import { InterviewModule } from "./modules/candidate/interview/interview.module"
 import { SpeechModule } from "./modules/speech/speech.module";
 import { CandidateResumeModule } from "./modules/candidate/resume/candidate-resume.module";
 import { JobMatchingModule } from "./modules/candidate/job-matching/job-matching.module";
+import { ApplicationModule } from "./modules/candidate/application/application.module";
+import { AgencyApplicationModule } from "./modules/agency/application/application.module";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -66,6 +68,7 @@ async function bootstrap() {
       SpeechModule,
       CandidateResumeModule,
       JobMatchingModule,
+      ApplicationModule,
 
     ],
   });
@@ -79,7 +82,14 @@ async function bootstrap() {
     .build();
 
   const agencyDocument = SwaggerModule.createDocument(app, agencyConfig, {
-    include: [ResumeModule, AgencyModule, JobModule, InvitationModule, InboxModule],
+    include: [
+      ResumeModule,
+      AgencyModule,
+      JobModule,
+      InvitationModule,
+      InboxModule,
+      AgencyApplicationModule
+    ],
   });
   SwaggerModule.setup('api/agency', app, agencyDocument);
 
