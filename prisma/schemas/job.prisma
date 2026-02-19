@@ -39,6 +39,7 @@ model Job{
     invitations Invitation[]
     interview_resources InterviewResources[]
     job_matches JobMatch[]
+    applications JobApplication[]
 
     job_ai_prompt_id Int? @unique
     jobAiPrompt JobAiPrompt? @relation(fields:[job_ai_prompt_id],references:[id],onDelete: Cascade)

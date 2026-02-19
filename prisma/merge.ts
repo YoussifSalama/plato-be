@@ -12,6 +12,7 @@ const schemas = [
     'inbox.prisma',
     'candidate.prisma',
     'interview.prisma',
+    'application.prisma',
 ];
 const schemasDir = path.join(__dirname, 'schemas');
 
