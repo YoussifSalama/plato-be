@@ -5,6 +5,7 @@ import { ResumeBatchesCronJob } from "./resume_batches.cronjob";
 import { PrismaService } from "src/modules/prisma/prisma.service";
 import { InvitationModule } from "src/modules/agency/invitation/invitation.module";
 import { InboxModule } from "src/modules/agency/inbox/inbox.module";
+import { OpenAiService } from "src/shared/services/openai.service";
 
 @Module({
     imports: [
@@ -14,7 +15,7 @@ import { InboxModule } from "src/modules/agency/inbox/inbox.module";
         InvitationModule,
         InboxModule,
     ],
-    providers: [ResumeBatchesWorker, ResumeBatchesCronJob, PrismaService],
+    providers: [ResumeBatchesWorker, ResumeBatchesCronJob, PrismaService,OpenAiService],
     exports: [ResumeBatchesWorker, ResumeBatchesCronJob]
 })
 export class ResumeBatchesModule { }

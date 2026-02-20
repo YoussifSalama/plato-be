@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/modules/prisma/prisma.service';
 import { Prisma } from "@generated/prisma";
 import { SendGridService } from 'src/shared/services/sendgrid.services';
-import { RandomUuidServie } from 'src/shared/services/randomuuid.services';
+import { RandomUuidService } from 'src/shared/services/randomuuid.services';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
 import { CreateDirectInvitationDto } from './dto/create-direct-invitation.dto';
 import invitationTemplate from 'src/shared/templates/invitation/Invitation.template';
@@ -15,7 +15,7 @@ export class InvitationService {
 
     constructor(
         private readonly prisma: PrismaService,
-        private readonly randomUuidService: RandomUuidServie,
+        private readonly randomUuidService: RandomUuidService,
         private readonly sendGridService: SendGridService,
         private readonly configService: ConfigService
     ) { }

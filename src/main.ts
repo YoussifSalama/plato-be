@@ -18,6 +18,7 @@ import { CandidateResumeModule } from "./modules/candidate/resume/candidate-resu
 import { JobMatchingModule } from "./modules/candidate/job-matching/job-matching.module";
 import { ApplicationModule } from "./modules/candidate/application/application.module";
 import { AgencyApplicationModule } from "./modules/agency/application/application.module";
+import { TeamModule } from "./modules/agency/team/team.module";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -88,7 +89,8 @@ async function bootstrap() {
       JobModule,
       InvitationModule,
       InboxModule,
-      AgencyApplicationModule
+      AgencyApplicationModule,
+      TeamModule
     ],
   });
   SwaggerModule.setup('api/agency', app, agencyDocument);

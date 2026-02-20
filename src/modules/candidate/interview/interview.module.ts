@@ -8,10 +8,11 @@ import { SpeechModule } from 'src/modules/speech/speech.module';
 import { InterviewGateway } from 'src/gateways/candidate/interview/interview.gateway';
 import { PaginationHelper } from 'src/shared/helpers/features/pagination';
 import { InboxModule } from 'src/modules/agency/inbox/inbox.module';
+import { OpenAiService } from 'src/shared/services/openai.service';
 
 @Module({
   imports: [PrismaModule, SpeechModule, InboxModule],
   controllers: [InterviewController],
-  providers: [InterviewService, InterviewGateway, JwtService, CandidateJwtAuthGuard, PaginationHelper]
+  providers: [InterviewService, InterviewGateway, JwtService, CandidateJwtAuthGuard, PaginationHelper,OpenAiService],
 })
 export class InterviewModule { }

@@ -7,11 +7,12 @@ import { JobAiPromptController } from "./job-ai-prompt.controller";
 import { JobAiPromptService } from "./job-ai-prompt.service";
 import { JobController } from "./job.controller";
 import { JobService } from "./job.service";
+import { OpenAiService } from "src/shared/services/openai.service";
 
 @Module({
     imports: [PrismaModule],
     controllers: [JobController, JobAiPromptController],
-    providers: [JobService, JobAiPromptService, PaginationHelper, JwtService, JwtAuthGuard],
+    providers: [JobService, JobAiPromptService, PaginationHelper, JwtService, JwtAuthGuard,OpenAiService],
 })
 export class JobModule { }
 

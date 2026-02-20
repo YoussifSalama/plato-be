@@ -7,10 +7,11 @@ import { InvitationModule } from 'src/modules/agency/invitation/invitation.modul
 import { FilterHelper } from 'src/shared/helpers/features/filter';
 import { PaginationHelper } from 'src/shared/helpers/features/pagination';
 import { JwtService } from 'src/shared/services/jwt.services';
+import { OpenAiService } from 'src/shared/services/openai.service';
 
 @Module({
   imports: [ResumeQueueModule, InvitationModule],
   controllers: [ResumeController],
-  providers: [ResumeService, PrismaService, FilterHelper, PaginationHelper, JwtService]
+  providers: [ResumeService, PrismaService, FilterHelper, PaginationHelper, JwtService, OpenAiService],
 })
 export class ResumeModule { }

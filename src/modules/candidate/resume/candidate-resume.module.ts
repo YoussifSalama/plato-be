@@ -5,10 +5,11 @@ import { ResumeParserService } from 'src/shared/helpers/modules/agency/resume/re
 
 import { PrismaModule } from 'src/modules/prisma/prisma.module';
 import { JwtService } from 'src/shared/services/jwt.services';
+import { OpenAiService } from 'src/shared/services/openai.service';
 
 @Module({
     imports: [PrismaModule],
     controllers: [CandidateResumeController],
-    providers: [CandidateResumeService, ResumeParserService, JwtService],
+    providers: [CandidateResumeService, ResumeParserService, JwtService,OpenAiService],
 })
 export class CandidateResumeModule { }
