@@ -305,7 +305,7 @@ export class InterviewService {
             ? await this.withTimeout(
                 this.speechService.synthesizeSpeech(
                     welcomeQuestion,
-                    "ash",
+                    "cedar",
                     "wav",
                     selectedLanguage
                 ),
@@ -860,7 +860,7 @@ export class InterviewService {
         return qaLog;
     }
 
-    async createRealtimeSession(model = "gpt-4o-realtime-preview", voice = "ash") {
+    async createRealtimeSession(model = "gpt-4o-realtime-preview", voice = "cedar") {
         const { index } = this.openaiService.getRotatedClient();
         const apiKey = this.openaiService.getApiKey(index);
         if (!apiKey) {
@@ -1080,7 +1080,7 @@ export class InterviewService {
             const closingSpeech = includeSpeech
                 ? await this.speechService.synthesizeSpeech(
                     closingMessage,
-                    "ash",
+                    "cedar",
                     "wav",
                     interviewLanguage
                 )
@@ -1114,7 +1114,7 @@ export class InterviewService {
         const nextQuestionSpeech = includeSpeech
             ? await this.speechService.synthesizeSpeech(
                 nextQuestion,
-                "ash",
+                "cedar",
                 "wav",
                 interviewLanguage
             )

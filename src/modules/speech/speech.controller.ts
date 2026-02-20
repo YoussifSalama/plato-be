@@ -34,7 +34,7 @@ export class SpeechController {
 
     @Post("synthesize")
     @ApiOperation({ summary: "Synthesize text to speech (OpenAI TTS)" })
-    @ApiBody({ schema: { type: "object", properties: { text: { type: "string" }, voice: { type: "string", enum: ["ash", "alloy", "verse", "aria", "sage", "coral"] }, format: { type: "string", enum: ["mp3", "wav", "opus", "aac", "flac", "pcm"] }, language: { type: "string", enum: ["en", "ar"] } } } })
+    @ApiBody({ schema: { type: "object", properties: { text: { type: "string" }, voice: { type: "string", enum: ["ash", "alloy", "verse", "aria", "sage", "coral", "cedar"] }, format: { type: "string", enum: ["mp3", "wav", "opus", "aac", "flac", "pcm"] }, language: { type: "string", enum: ["en", "ar"] } } } })
     @ApiProduces("audio/mpeg", "audio/wav", "audio/opus", "audio/aac", "audio/flac", "audio/pcm")
     async synthesize(@Body() dto: SynthesizeDto, @Res() res: Response) {
         const { audioBuffer, contentType } = await this.speechService.synthesizeSpeech(

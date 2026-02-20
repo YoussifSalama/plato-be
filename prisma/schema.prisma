@@ -260,9 +260,11 @@ model Agency{
     company_size String?
     company_industry String?
     company_description String?
+    organization_id String? @unique
 
     account Account?
     teams Team[]
+    team_invitations TeamInvitation[]
     jobs Job[]
     invitations Invitation[]
     inboxes Inbox[]
@@ -286,12 +288,42 @@ model Credential{
 
 model Team{
     id Int @id @default(autoincrement())
-    email String @unique
-    phone String? @unique
-    name String?
 
     agency_id Int
     agency Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+
+    members TeamMember[]
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model TeamMember{
+    id Int @id @default(autoincrement())
+    name String?
+    email String @unique
+    phone String? @unique
+
+    team_id Int
+    team Team @relation(fields:[team_id], references:[id])
+
+    invitations TeamInvitation[]
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model TeamInvitation{
+    id Int @id @default(autoincrement())
+    code String @unique
+    revoked Boolean @default(false)
+    expires_at DateTime
+
+    agency_id Int
+    agency Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+
+    member_id Int
+    member TeamMember @relation(fields: [member_id], references: [id])
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt

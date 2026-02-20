@@ -218,7 +218,7 @@ export class InterviewController {
         try {
             const result = await this.interviewService.createRealtimeSession(
                 body.model ?? "gpt-4o-realtime-preview",
-                body.voice ?? "ash"
+                body.voice ?? "cedar"
             );
             this.logger.log(`realtime.done ms=${Date.now() - startedAt}`);
             return result;
