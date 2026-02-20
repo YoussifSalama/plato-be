@@ -16,7 +16,7 @@ export interface IEnvParams {
     password?: string;
   };
   openai: {
-    apiKey: string;
+    apiKeys: string[];
   };
   sendGrid: {
     enabled: boolean;

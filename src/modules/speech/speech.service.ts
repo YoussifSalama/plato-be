@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import OpenAI from "openai";
+import { OpenAiService } from "src/shared/services/openai.service";
 import { toFile } from "openai/uploads";
 import { arAiInstructionsTts, enAiInstructionsTts } from "src/shared/ai/tts/ai.instructions.tts";
 
@@ -14,12 +13,10 @@ const clampText = (value: string, maxChars: number) =>
 
 @Injectable()
 export class SpeechService {
-    private readonly openai: OpenAI;
+    constructor(private readonly openaiService: OpenAiService) { }
 
-    constructor(private readonly config: ConfigService) {
-        this.openai = new OpenAI({
-            apiKey: this.config.get<string>("env.openai.apiKey") ?? "",
-        });
+    private get openai() {
+        return this.openaiService.getRotatedClient().client;
     }
 
     async transcribeAudio(

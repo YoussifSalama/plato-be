@@ -1,8 +1,7 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/modules/prisma/prisma.service';
 import { Job, JobWorkplaceType } from '@generated/prisma';
-import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
+import { OpenAiService } from 'src/shared/services/openai.service';
 import { buildJobScoringPrompt } from 'src/shared/ai/candidate/prompts/scoring.prompt';
 
 type MatchedJob = {
@@ -16,16 +15,15 @@ type MatchedJob = {
 
 @Injectable()
 export class JobMatchingService {
-    private readonly openai: OpenAI;
     private readonly logger = new Logger(JobMatchingService.name);
 
     constructor(
         private readonly prisma: PrismaService,
-        private readonly configService: ConfigService,
-    ) {
-        this.openai = new OpenAI({
-            apiKey: this.configService.get<string>('env.openai.apiKey') ?? '',
-        });
+        private readonly openaiService: OpenAiService,
+    ) { }
+
+    private get openai() {
+        return this.openaiService.getRotatedClient().client;
     }
 
     private calculateSkillMatch(

@@ -277,7 +277,7 @@ export class InboxService {
     async createInterviewInbox(input: InterviewInboxInput) {
         let title = "";
         let description = "";
-        let severity = InboxSeverity.info;
+        let severity: InboxSeverity = InboxSeverity.info;
 
         switch (input.status) {
             case InterviewSessionStatus.active:

@@ -19,7 +19,11 @@ export default registerAs(
             password: process.env.REDIS_PASSWORD ?? undefined,
         },
         openai: {
-            apiKey: process.env.OPENAI_API_KEY ?? '',
+            apiKeys: Object.keys(process.env)
+                .filter((key) => key.startsWith('OPENAI_API_KEY'))
+                .sort()
+                .map((key) => process.env[key])
+                .filter(Boolean) as string[],
         },
         sendGrid: {
             enabled: process.env.SENDGRID_ENABLED

@@ -11,6 +11,7 @@ import { ConfigService } from "@nestjs/config";
 import OpenAI from "openai";
 import { ResumeAiBatchStatus } from "@generated/prisma";
 import { ensureUploadsDir } from "src/shared/helpers/storage/uploads-path";
+import { OpenAiService } from "src/shared/services/openai.service";
 
 const resumesFolder = ensureUploadsDir("resumes");
 const batchJsonlFolder = ensureUploadsDir("resumes_batches_jsonl");
@@ -20,18 +21,18 @@ if (!fs.existsSync(batchJsonlFolder)) {
 
 @Processor('resume_queue')
 export class ResumeWorker extends WorkerHost {
-    private readonly openai: OpenAI;
     private readonly logger = new Logger(ResumeWorker.name);
-    constructor(private readonly prisma: PrismaService, private readonly resumeParserService: ResumeParserService, private readonly configService: ConfigService) {
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly resumeParserService: ResumeParserService,
+        private readonly openaiService: OpenAiService
+    ) {
         super();
-        this.openai = new OpenAI({
-            apiKey: this.configService.get<string>("env.openai.apiKey") ?? "",
-        })
     }
 
     private async updateResumeAiBatch(
         batch: OpenAI.Batch,
-        context: { jobId: number; agencyId: number },
+        context: { jobId: number; agencyId: number; projectIndex: number },
     ) {
         const { completion_window, metadata, input_file_id, id: batchId } = batch;
         const customerId = metadata?.customer_id ?? null;
@@ -46,6 +47,7 @@ export class ResumeWorker extends WorkerHost {
                     customer_id: customerId,
                     job_id: context.jobId,
                     agency_id: context.agencyId,
+                    openai_project_index: context.projectIndex,
                 },
                 batch_id: batchId,
             },
@@ -59,13 +61,16 @@ export class ResumeWorker extends WorkerHost {
         const baseDelayMs = 500;
         const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
         let attempt = 0;
+
+        const { client: openai, index: projectIndex } = this.openaiService.getRotatedClient();
+
         while (attempt <= maxRetries) {
             try {
-                const file = await this.openai.files.create({
+                const file = await openai.files.create({
                     file: fs.createReadStream(batchJsonlFileName),
                     purpose: "batch",
                 });
-                this.logger.log(`Uploaded batch file to OpenAI: ${file.id}`);
+                this.logger.log(`Uploaded batch file to OpenAI [Project ${projectIndex}]: ${file.id}`);
                 await this.prisma.resumeProcessingBatch.create({
                     data: {
                         input_file_link: batchJsonlFileName,
@@ -74,10 +79,11 @@ export class ResumeWorker extends WorkerHost {
                         ai_meta: {
                             job_id: context.jobId,
                             agency_id: context.agencyId,
+                            openai_project_index: projectIndex,
                         },
                     },
                 });
-                const batch = await this.openai.batches.create({
+                const batch = await openai.batches.create({
                     input_file_id: file.id,
                     endpoint: "/v1/chat/completions",
                     completion_window: "24h",
@@ -86,7 +92,7 @@ export class ResumeWorker extends WorkerHost {
                         agency_id: String(context.agencyId),
                     },
                 });
-                await this.updateResumeAiBatch(batch, context);
+                await this.updateResumeAiBatch(batch, { ...context, projectIndex });
                 return batch;
             } catch (error) {
                 if (attempt === maxRetries) {

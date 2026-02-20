@@ -1,9 +1,10 @@
 import { Agency, Job, ResumeAnalysis, ResumeStructured, InvitationTokenStatus, Prisma, InterviewSessionStatus } from '@generated/prisma';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
 import { PrismaService } from 'src/modules/prisma/prisma.service';
 import { SpeechService } from 'src/modules/speech/speech.service';
+import { OpenAI } from 'openai';
+import { OpenAiService } from 'src/shared/services/openai.service';
 import AiInterviewPrompt from 'src/shared/ai/candidate/prompts/ai.interview.prompt';
 import GenerateReferenceQuestions from 'src/shared/ai/candidate/prompts/ai.refrence.prompt';
 import { InterviewLanguage } from './dto/create-interview-resources.dto';
@@ -25,19 +26,20 @@ import { InboxService } from 'src/modules/agency/inbox/inbox.service';
 
 @Injectable()
 export class InterviewService {
+    private readonly openai: OpenAI;
+
     constructor(
         private readonly prisma: PrismaService,
-        private readonly configService: ConfigService,
         private readonly speechService: SpeechService,
         private readonly paginationHelper: PaginationHelper,
+        private readonly configService: ConfigService,
+        private readonly openaiService: OpenAiService,
         private readonly inboxService: InboxService
     ) {
         this.openai = new OpenAI({
-            apiKey: this.configService.get<string>("env.openai.apiKey") ?? "",
+            apiKey: this.configService.get<string>("OPENAI_API_KEY") ?? "",
         });
     }
-
-    private readonly openai: OpenAI;
 
     private toJsonSnapshot<T>(value: T): T {
         return JSON.parse(JSON.stringify(value));
@@ -859,7 +861,8 @@ export class InterviewService {
     }
 
     async createRealtimeSession(model = "gpt-4o-realtime-preview", voice = "ash") {
-        const apiKey = this.configService.get<string>("env.openai.apiKey") ?? "";
+        const { index } = this.openaiService.getRotatedClient();
+        const apiKey = this.openaiService.getApiKey(index);
         if (!apiKey) {
             throw new BadRequestException("OpenAI API key is not configured.");
         }

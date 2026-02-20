@@ -1,8 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/modules/prisma/prisma.service';
 import { ResumeParserService } from 'src/shared/helpers/modules/agency/resume/resume.helper';
-import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
+import { OpenAiService } from 'src/shared/services/openai.service';
 import { ensureUploadsDir } from 'src/shared/helpers/storage/uploads-path';
 import * as path from 'path';
 import { buildCandidateResumeAiPrompt } from 'src/shared/ai/candidate/prompts/resume.prompt';
@@ -10,17 +9,16 @@ import { buildCandidateResumeAiPrompt } from 'src/shared/ai/candidate/prompts/re
 
 @Injectable()
 export class CandidateResumeService {
-    private readonly openai: OpenAI;
     private readonly logger = new Logger(CandidateResumeService.name);
 
     constructor(
         private readonly prisma: PrismaService,
         private readonly resumeParserService: ResumeParserService,
-        private readonly configService: ConfigService,
-    ) {
-        this.openai = new OpenAI({
-            apiKey: this.configService.get<string>('env.openai.apiKey') ?? '',
-        });
+        private readonly openaiService: OpenAiService,
+    ) { }
+
+    private get openai() {
+        return this.openaiService.getRotatedClient().client;
     }
 
     async parseAndSaveResume(candidateId: number, file: Express.Multer.File, shouldParse: boolean = true) {

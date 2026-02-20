@@ -1,8 +1,8 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import OpenAI from "openai";
 import { Prisma } from "@generated/prisma";
 import { PrismaService } from "src/modules/prisma/prisma.service";
+import { OpenAiService } from "src/shared/services/openai.service";
 import { PaginationHelper } from "src/shared/helpers/features/pagination";
 import responseFormatter from "src/shared/helpers/response";
 import { buildJobAiPrompt } from "src/shared/ai/agency/prompts/job.prompt";
@@ -19,14 +19,12 @@ export class JobService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly paginationHelper: PaginationHelper,
-        private readonly configService: ConfigService
-    ) {
-        this.openai = new OpenAI({
-            apiKey: this.configService.get<string>("env.openai.apiKey") ?? "",
-        });
-    }
+        private readonly openaiService: OpenAiService
+    ) { }
 
-    private readonly openai: OpenAI;
+    private get openai() {
+        return this.openaiService.getRotatedClient().client;
+    }
 
     private validateSalaryRange(salaryFrom?: number, salaryTo?: number) {
         if (salaryFrom != null && salaryTo != null && salaryFrom > salaryTo) {
@@ -328,7 +326,7 @@ export class JobService {
 
     async generateJobContent(accountId: number, dto: GenerateJobAiDto) {
         await this.getAgencyId(accountId);
-        if (!this.configService.get<string>("env.openai.apiKey")) {
+        if (this.openaiService.count === 0) {
             throw new BadRequestException("OpenAI API key not configured.");
         }
         const missingFields = [

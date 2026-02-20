@@ -1,8 +1,6 @@
 import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Injectable, Logger } from "@nestjs/common";
 import { Job } from "bullmq";
-import OpenAI from "openai";
-import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "src/modules/prisma/prisma.service";
 import { ResumeAiBatchStatus } from "@generated/prisma";
 import { Batch } from "openai/resources";
@@ -11,6 +9,7 @@ import * as fs from 'fs';
 import { InvitationService } from "src/modules/agency/invitation/invitation.service";
 import { InboxService } from "src/modules/agency/inbox/inbox.service";
 import { ensureUploadsDir } from "src/shared/helpers/storage/uploads-path";
+import { OpenAiService } from "src/shared/services/openai.service";
 
 const batchOutputFolder = ensureUploadsDir("resumes_batches_output");
 
@@ -35,20 +34,16 @@ type StructuredData = {
 @Injectable()
 export class ResumeBatchesWorker extends WorkerHost {
     private readonly logger = new Logger(ResumeBatchesWorker.name);
-    private readonly openai: OpenAI;
     private readonly jobThresholdCache = new Map<number, JobThresholds | null>();
     private readonly maxRetryAttempts = 2;
 
     constructor(
-        private readonly configService: ConfigService,
         private readonly prisma: PrismaService,
         private readonly invitationService: InvitationService,
         private readonly inboxService: InboxService,
+        private readonly openaiService: OpenAiService,
     ) {
         super();
-        this.openai = new OpenAI({
-            apiKey: this.configService.get<string>("env.openai.apiKey") ?? ""
-        });
         this.logger.log("ResumeBatchesWorker initialized");
     }
 
@@ -60,11 +55,12 @@ export class ResumeBatchesWorker extends WorkerHost {
     }
 
     /** Download output file from OpenAI and parse JSONL */
-    private async downloadBatchOutput(batch: Batch): Promise<any[]> {
+    private async downloadBatchOutput(batch: Batch, projectIndex: number): Promise<any[]> {
         if (!batch.output_file_id) return [];
 
         try {
-            const res = await this.openai.files.content(batch.output_file_id);
+            const openai = this.openaiService.getClient(projectIndex);
+            const res = await openai.files.content(batch.output_file_id);
             const text = await res.text();
 
             if (!fs.existsSync(batchOutputFolder)) {
@@ -76,7 +72,7 @@ export class ResumeBatchesWorker extends WorkerHost {
                 .filter(Boolean)
                 .map(line => JSON.parse(line));
         } catch (err) {
-            this.logger.error(`Failed to download output for batch ${batch.id}`, err as any);
+            this.logger.error(`Failed to download output for batch ${batch.id} [Project ${projectIndex}]`, err as any);
             return [];
         }
     }
@@ -134,7 +130,7 @@ export class ResumeBatchesWorker extends WorkerHost {
         };
     }
 
-    private async retryFailedBatch(batch: Batch) {
+    private async retryFailedBatch(batch: Batch, projectIndex: number) {
         const record = await this.getBatchRecordByOpenAiId(batch.id);
         if (!record) {
             this.logger.warn(`ResumeProcessingBatch not found for retry (batchId=${batch.id}).`);
@@ -160,7 +156,9 @@ export class ResumeBatchesWorker extends WorkerHost {
         if (context.agencyId) {
             metadata.agency_id = String(context.agencyId);
         }
-        const newBatch = await this.openai.batches.create({
+
+        const openai = this.openaiService.getClient(projectIndex);
+        const newBatch = await openai.batches.create({
             input_file_id: record.input_file_id,
             endpoint: "/v1/chat/completions",
             completion_window: "24h",
@@ -183,7 +181,7 @@ export class ResumeBatchesWorker extends WorkerHost {
                 },
             },
         });
-        this.logger.log(`Retried batch ${batch.id} -> ${newBatch.id} (attempt ${retryCount + 1}).`);
+        this.logger.log(`Retried batch ${batch.id} -> ${newBatch.id} (attempt ${retryCount + 1}) [Project ${projectIndex}].`);
         return true;
     }
 
@@ -393,8 +391,8 @@ export class ResumeBatchesWorker extends WorkerHost {
     }
 
     /** Process batch outputs: save structured data and AI analysis */
-    private async processBatchOutput(batch: Batch) {
-        const outputs = await this.downloadBatchOutput(batch);
+    private async processBatchOutput(batch: Batch, projectIndex: number) {
+        const outputs = await this.downloadBatchOutput(batch, projectIndex);
 
         let fallbackJobId: number | null = null;
         let fallbackAgencyId: number | null = null;
@@ -505,48 +503,49 @@ export class ResumeBatchesWorker extends WorkerHost {
     /** Pull unfinished batches from OpenAI */
     private async pullResumeBatchesFromOpenAi() {
         const batches = await this.getAllNotCompletedBatchesFromDb();
-        const batchIds = batches
-            .map(batch => batch.batch_id)
-            .filter((batchId): batchId is string => Boolean(batchId));
+        if (batches.length === 0) return [];
 
-        let relevantBatches: Batch[] = [];
-        let after: string | undefined = undefined;
+        const results: Batch[] = [];
 
-        while (relevantBatches.length < batchIds.length) {
-            const response = await this.openai.batches.list({ limit: 100, after });
-            const matching = response.data.filter(batch => batchIds.includes(batch.id));
-            relevantBatches.push(...matching);
+        for (const record of batches) {
+            const batchId = record.batch_id;
+            if (!batchId) continue;
 
-            if (!response.has_more) break;
-            after = response.data[response.data.length - 1].id;
-        }
+            const aiMeta = (record.ai_meta ?? {}) as Record<string, unknown>;
+            const projectIndex = typeof aiMeta.openai_project_index === "number" ? aiMeta.openai_project_index : 0;
 
-        const completedBatches = relevantBatches.filter(batch => batch.status === "completed");
+            try {
+                const openai = this.openaiService.getClient(projectIndex);
+                const batch = await openai.batches.retrieve(batchId);
 
-        // Process each completed batch
-        for (const batch of completedBatches) {
-            await this.processBatchOutput(batch);
-        }
-
-        const nonCompletedBatches = relevantBatches.filter(batch => batch.status !== "completed");
-        for (const batch of nonCompletedBatches) {
-            const mappedStatus = this.mapOpenAiStatus(batch.status);
-            if (!mappedStatus || mappedStatus === ResumeAiBatchStatus.completed) continue;
-            if (
-                mappedStatus === ResumeAiBatchStatus.failed ||
-                mappedStatus === ResumeAiBatchStatus.cancelled ||
-                mappedStatus === ResumeAiBatchStatus.expired
-            ) {
-                const retried = await this.retryFailedBatch(batch);
-                if (retried) {
-                    continue;
+                if (batch.status === "completed") {
+                    await this.processBatchOutput(batch, projectIndex);
+                    results.push(batch);
+                } else {
+                    const mappedStatus = this.mapOpenAiStatus(batch.status);
+                    if (mappedStatus) {
+                        if (
+                            mappedStatus === ResumeAiBatchStatus.failed ||
+                            mappedStatus === ResumeAiBatchStatus.cancelled ||
+                            mappedStatus === ResumeAiBatchStatus.expired
+                        ) {
+                            const retried = await this.retryFailedBatch(batch, projectIndex);
+                            if (!retried) {
+                                const batchRecord = await this.updateResumeAiBatch(batch, mappedStatus);
+                                await this.createInboxForBatchStatus(batchRecord, mappedStatus, batch.id);
+                            }
+                        } else {
+                            await this.updateResumeAiBatch(batch, mappedStatus);
+                            // We don't send inbox for pending/validating every pull
+                        }
+                    }
                 }
+            } catch (err) {
+                this.logger.error(`Failed to retrieve batch ${batchId} [Project ${projectIndex}]`, err as any);
             }
-            const batchRecord = await this.updateResumeAiBatch(batch, mappedStatus);
-            await this.createInboxForBatchStatus(batchRecord, mappedStatus, batch.id);
         }
 
-        return completedBatches;
+        return results;
     }
 
     /** Worker entry point */
