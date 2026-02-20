@@ -47,6 +47,8 @@ model InterviewSession{
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 
+    inboxes Inbox[]
+
     @@index([agency_id])
     @@index([invitation_token_id])
 }

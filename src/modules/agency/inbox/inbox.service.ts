@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger } from "@nestjs/common";
-import { Prisma, InboxSeverity, InboxStatus, InboxType, ResumeAiBatchStatus } from "@generated/prisma";
+import { Prisma, InboxSeverity, InboxStatus, InboxType, ResumeAiBatchStatus, InterviewSessionStatus } from "@generated/prisma";
 import { PrismaService } from "src/modules/prisma/prisma.service";
 import { InboxEventsService } from "./inbox.events.service";
 import { PaginationHelper } from "src/shared/helpers/features/pagination";
@@ -12,6 +12,23 @@ type BatchInboxInput = {
     batchId: number;
     status: ResumeAiBatchStatus;
     openAiBatchId?: string | null;
+};
+
+type ApplicationInboxInput = {
+    agencyId: number;
+    jobId: number;
+    jobApplicationId: number;
+    candidateName: string;
+    jobTitle: string;
+};
+
+type InterviewInboxInput = {
+    agencyId: number;
+    jobId: number;
+    interviewSessionId: number;
+    status: InterviewSessionStatus;
+    candidateName: string;
+    jobTitle: string;
 };
 
 @Injectable()
@@ -219,6 +236,101 @@ export class InboxService {
             batch_id: inbox.batch_id,
             created_at: inbox.created_at,
         });
+        return inbox;
+    }
+
+    async createApplicationInbox(input: ApplicationInboxInput) {
+        const title = `New Application: ${input.candidateName}`;
+        const description = `${input.candidateName} has applied for ${input.jobTitle}.`;
+
+        const inbox = await this.prisma.inbox.create({
+            data: {
+                type: InboxType.application,
+                status: InboxStatus.unread,
+                severity: InboxSeverity.info,
+                title,
+                description,
+                agency_id: input.agencyId,
+                job_id: input.jobId,
+                job_application_id: input.jobApplicationId,
+            },
+        });
+
+        this.logger.log(`Created application inbox (applicationId=${input.jobApplicationId}, agencyId=${input.agencyId})`);
+
+        await this.inboxEvents.emitInboxCreated(input.agencyId, {
+            id: inbox.id,
+            type: inbox.type,
+            status: inbox.status,
+            severity: inbox.severity,
+            title: inbox.title,
+            description: inbox.description,
+            agency_id: inbox.agency_id,
+            job_id: inbox.job_id,
+            job_application_id: inbox.job_application_id,
+            created_at: inbox.created_at,
+        });
+
+        return inbox;
+    }
+
+    async createInterviewInbox(input: InterviewInboxInput) {
+        let title = "";
+        let description = "";
+        let severity = InboxSeverity.info;
+
+        switch (input.status) {
+            case InterviewSessionStatus.active:
+                title = `Interview Started: ${input.candidateName}`;
+                description = `${input.candidateName} has started the interview for ${input.jobTitle}.`;
+                break;
+            case InterviewSessionStatus.completed:
+                title = `Interview Completed: ${input.candidateName}`;
+                description = `${input.candidateName} has completed the interview for ${input.jobTitle}.`;
+                severity = InboxSeverity.info;
+                break;
+            case InterviewSessionStatus.cancelled:
+                title = `Interview Cancelled: ${input.candidateName}`;
+                description = `${input.candidateName} has cancelled the interview for ${input.jobTitle}.`;
+                severity = InboxSeverity.warning;
+                break;
+            case InterviewSessionStatus.postponed:
+                title = `Interview Postponed: ${input.candidateName}`;
+                description = `${input.candidateName} has postponed the interview for ${input.jobTitle}.`;
+                severity = InboxSeverity.warning;
+                break;
+            default:
+                return null;
+        }
+
+        const inbox = await this.prisma.inbox.create({
+            data: {
+                type: InboxType.interview,
+                status: InboxStatus.unread,
+                severity,
+                title,
+                description,
+                agency_id: input.agencyId,
+                job_id: input.jobId,
+                interview_session_id: input.interviewSessionId,
+            },
+        });
+
+        this.logger.log(`Created interview inbox (sessionId=${input.interviewSessionId}, status=${input.status}, agencyId=${input.agencyId})`);
+
+        await this.inboxEvents.emitInboxCreated(input.agencyId, {
+            id: inbox.id,
+            type: inbox.type,
+            status: inbox.status,
+            severity: inbox.severity,
+            title: inbox.title,
+            description: inbox.description,
+            agency_id: inbox.agency_id,
+            job_id: inbox.job_id,
+            interview_session_id: inbox.interview_session_id,
+            created_at: inbox.created_at,
+        });
+
         return inbox;
     }
 }

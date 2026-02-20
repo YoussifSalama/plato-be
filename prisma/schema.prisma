@@ -117,6 +117,8 @@ enum JobSoftSkills{
 
 enum InboxType{
     batch
+    application
+    interview
 }
 
 enum InboxStatus{
@@ -474,6 +476,12 @@ model Inbox{
     batch_id Int?
     batch ResumeProcessingBatch? @relation(fields: [batch_id], references: [id])
 
+    job_application_id Int?
+    job_application JobApplication? @relation(fields: [job_application_id], references: [id])
+
+    interview_session_id Int?
+    interview_session InterviewSession? @relation(fields: [interview_session_id], references: [id])
+
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }
@@ -674,6 +682,8 @@ model InterviewSession{
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 
+    inboxes Inbox[]
+
     @@index([agency_id])
     @@index([invitation_token_id])
 }
@@ -692,6 +702,8 @@ model JobApplication {
 
     resume_id Int @unique
     resume Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+
+    inboxes Inbox[]
 
     @@unique([candidate_id, job_id])
     @@index([candidate_id])
