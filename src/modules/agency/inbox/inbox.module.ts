@@ -12,7 +12,6 @@ import { JwtAuthGuard } from "src/shared/guards/jwt-auth.guard";
     imports: [PrismaModule],
     controllers: [InboxController],
     providers: [InboxService, InboxGateway, InboxEventsService, PaginationHelper, JwtService, JwtAuthGuard],
-    exports: [InboxService, InboxEventsService],
+    exports: [InboxService],
 })
 export class InboxModule { }
-

@@ -12,6 +12,8 @@ model JobApplication {
     resume_id Int @unique
     resume Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
 
+    inboxes Inbox[]
+
     @@unique([candidate_id, job_id])
     @@index([candidate_id])
     @@index([job_id])

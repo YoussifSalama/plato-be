@@ -4,9 +4,10 @@ import { ApplicationService } from './application.service';
 import { PrismaModule } from 'src/modules/prisma/prisma.module';
 import { JwtService } from 'src/shared/services/jwt.services';
 import { CandidateJwtAuthGuard } from 'src/shared/guards/candidate-jwt-auth.guard';
+import { InboxModule } from 'src/modules/agency/inbox/inbox.module';
 
 @Module({
-    imports: [PrismaModule],
+    imports: [PrismaModule, InboxModule],
     controllers: [ApplicationController],
     providers: [ApplicationService, JwtService, CandidateJwtAuthGuard],
 })

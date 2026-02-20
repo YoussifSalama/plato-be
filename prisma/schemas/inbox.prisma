@@ -15,6 +15,12 @@ model Inbox{
     batch_id Int?
     batch ResumeProcessingBatch? @relation(fields: [batch_id], references: [id])
 
+    job_application_id Int?
+    job_application JobApplication? @relation(fields: [job_application_id], references: [id])
+
+    interview_session_id Int?
+    interview_session InterviewSession? @relation(fields: [interview_session_id], references: [id])
+
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }

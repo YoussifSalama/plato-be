@@ -21,13 +21,16 @@ import * as path from 'path';
 import { GetInterviewSessionsDto } from './dto/get-interview-sessions.dto';
 import { PaginationHelper } from 'src/shared/helpers/features/pagination';
 
+import { InboxService } from 'src/modules/agency/inbox/inbox.service';
+
 @Injectable()
 export class InterviewService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly configService: ConfigService,
         private readonly speechService: SpeechService,
-        private readonly paginationHelper: PaginationHelper
+        private readonly paginationHelper: PaginationHelper,
+        private readonly inboxService: InboxService
     ) {
         this.openai = new OpenAI({
             apiKey: this.configService.get<string>("env.openai.apiKey") ?? "",
@@ -309,6 +312,10 @@ export class InterviewService {
             )
             : null;
 
+
+        // Notify agency (Using a side-effect, not blocking response)
+        this.notifyInterviewStatus(session.id, InterviewSessionStatus.active).catch(() => { });
+
         return {
             interview_session_id: session.id,
             question: welcomeQuestion,
@@ -334,6 +341,10 @@ export class InterviewService {
             throw new BadRequestException("Interview session not found.");
         }
         const selectedLanguage = interviewResources?.language === "en" ? "en" : "ar";
+
+        // Notify agency
+        this.notifyInterviewStatus(session.id, InterviewSessionStatus.active).catch(() => { });
+
         return {
             interview_session_id: session.id,
             language: selectedLanguage,
@@ -741,6 +752,9 @@ export class InterviewService {
                 data: { revoked: true, status: InvitationTokenStatus.invalid },
             }),
         ]);
+
+        await this.notifyInterviewStatus(updatedSession.id, InterviewSessionStatus.cancelled);
+
         return updatedSession;
     }
 
@@ -767,6 +781,9 @@ export class InterviewService {
                 data: { revoked: true, status: InvitationTokenStatus.invalid },
             }),
         ]);
+
+        await this.notifyInterviewStatus(updatedSession.id, InterviewSessionStatus.completed);
+
         return updatedSession;
     }
 
@@ -793,6 +810,9 @@ export class InterviewService {
                 data: { revoked: true, status: InvitationTokenStatus.invalid },
             }),
         ]);
+
+        await this.notifyInterviewStatus(updatedSession.id, InterviewSessionStatus.postponed);
+
         return updatedSession;
     }
 
@@ -1211,5 +1231,42 @@ export class InterviewService {
             "Interview sessions retrieved.",
             200
         );
+    }
+
+    private async notifyInterviewStatus(sessionId: number, status: InterviewSessionStatus) {
+        try {
+            const session = await this.prisma.interviewSession.findUnique({
+                where: { id: sessionId },
+                include: {
+                    invitation_token: {
+                        include: {
+                            candidate: true,
+                            invitation: { include: { job: true } }
+                        }
+                    }
+                }
+            });
+
+            if (!session || !session.invitation_token || !session.invitation_token.invitation || !session.invitation_token.invitation.job) {
+                return;
+            }
+
+            const candidate = session.invitation_token.candidate;
+            const job = session.invitation_token.invitation.job;
+            const candidateName = candidate
+                ? (candidate.candidate_name || `${candidate.f_name} ${candidate.l_name}`.trim())
+                : "Unknown Candidate";
+
+            await this.inboxService.createInterviewInbox({
+                agencyId: session.agency_id,
+                jobId: job.id,
+                interviewSessionId: sessionId,
+                status,
+                candidateName,
+                jobTitle: job.title,
+            });
+        } catch (error) {
+            console.error('Failed to create interview inbox notification', error);
+        }
     }
 }

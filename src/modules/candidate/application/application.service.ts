@@ -1,10 +1,14 @@
 import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from 'src/modules/prisma/prisma.service';
 import { ResumeFileTypes } from '@generated/prisma';
+import { InboxService } from 'src/modules/agency/inbox/inbox.service';
 
 @Injectable()
 export class ApplicationService {
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly inboxService: InboxService
+    ) { }
 
     async apply(candidateId: number, jobId: number) {
         // 1. Fetch Job and check existence
@@ -63,7 +67,7 @@ export class ApplicationService {
 
 
         // 5. Transaction to create Resume and JobApplication
-        return this.prisma.$transaction(async (tx) => {
+        const application = await this.prisma.$transaction(async (tx) => {
             // Create a specific resume entry for this application
             // We use the candidate's name for the resume name
             const candidate = await tx.candidate.findUnique({
@@ -97,5 +101,27 @@ export class ApplicationService {
 
             return application;
         });
+
+        // Trigger inbox notification
+        try {
+            const candidate = await this.prisma.candidate.findUnique({
+                where: { id: candidateId },
+                select: { f_name: true, l_name: true }
+            });
+
+            if (job && candidate) {
+                await this.inboxService.createApplicationInbox({
+                    agencyId: job.agency_id,
+                    jobId: jobId,
+                    jobApplicationId: application.id,
+                    candidateName: `${candidate.f_name} ${candidate.l_name}`.trim(),
+                    jobTitle: job.title,
+                });
+            }
+        } catch (error) {
+            console.error('Failed to create application inbox notification', error);
+        }
+
+        return application;
     }
 }

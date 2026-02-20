@@ -105,6 +105,8 @@ enum JobSoftSkills{
 
 enum InboxType{
     batch
+    application
+    interview
 }
 
 enum InboxStatus{
