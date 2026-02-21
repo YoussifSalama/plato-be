@@ -2,12 +2,14 @@ import { Injectable, BadRequestException, NotFoundException, ConflictException }
 import { PrismaService } from 'src/modules/prisma/prisma.service';
 import { ResumeFileTypes } from '@generated/prisma';
 import { InboxService } from 'src/modules/agency/inbox/inbox.service';
+import { ResumeProducer } from 'src/queues/agency/resume/resume.producer';
 
 @Injectable()
 export class ApplicationService {
     constructor(
         private readonly prisma: PrismaService,
-        private readonly inboxService: InboxService
+        private readonly inboxService: InboxService,
+        private readonly resumeProducer: ResumeProducer
     ) { }
 
     async apply(candidateId: number, jobId: number) {
@@ -62,6 +64,7 @@ export class ApplicationService {
         }
 
         const resumeLink = profile.resume_link;
+        const resumeFilename = resumeLink.split('/').pop() || resumeLink;
         // Basic deduction of file type from extension, defaulting to PDF
         const fileType = resumeLink.toLowerCase().endsWith('.xlsx') ? ResumeFileTypes.xlsx : ResumeFileTypes.pdf;
 
@@ -81,7 +84,7 @@ export class ApplicationService {
                 data: {
                     name: resumeName,
                     file_type: fileType,
-                    link: resumeLink,
+                    link: resumeFilename,
                     parsed: JSON.stringify(profile.resume_parsed) || null,
                     job_id: jobId,
                     // Note: We are NOT setting candidate_id on Resume based on the schema discussion, 
@@ -120,6 +123,19 @@ export class ApplicationService {
             }
         } catch (error) {
             console.error('Failed to create application inbox notification', error);
+        }
+
+        // Trigger resume processing
+        try {
+            const resumeToProcess = await this.prisma.resume.findUnique({
+                where: { id: application.resume_id },
+                select: { id: true, name: true, file_type: true, link: true }
+            });
+            if (resumeToProcess) {
+                await this.resumeProducer.processResumes([resumeToProcess], jobId);
+            }
+        } catch (error) {
+            console.error('Failed to dispatch resume to queue for processing', error);
         }
 
         return application;
