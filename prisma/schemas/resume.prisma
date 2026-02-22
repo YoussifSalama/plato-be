@@ -1,49 +1,55 @@
-model Resume{
-    id Int @id @default(autoincrement())
-    name String
-    file_type ResumeFileTypes
-    link String
-    parsed String?
+model Resume {
+  id        Int             @id @default(autoincrement())
+  name      String
+  file_type ResumeFileTypes
+  link      String
+  parsed    String?
 
-    job_id Int
-    job Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  job_id Int
+  job    Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
 
-    created_at DateTime @default(now())
-    updated_at DateTime @updatedAt
+  updated_by Int?
+  updater    Account? @relation("ResumeUpdater", fields: [updated_by], references: [id])
 
-    auto_invited Boolean @default(false)
-    auto_shortlisted Boolean @default(false)
-    auto_denied Boolean @default(false)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
-    invitation Invitation?
-    resume_structured ResumeStructured?
-    resume_analysis ResumeAnalysis?
-    interview_resources InterviewResources[]
-    application JobApplication?
+  auto_invited     Boolean @default(false)
+  auto_shortlisted Boolean @default(false)
+  auto_denied      Boolean @default(false)
+
+  invitation          Invitation?
+  resume_structured   ResumeStructured?
+  resume_analysis     ResumeAnalysis?
+  interview_resources InterviewResources[]
+  application         JobApplication?
 }
 
-model ResumeStructured{
-    id Int @id @default(autoincrement())
-    data Json
+model ResumeStructured {
+  id   Int  @id @default(autoincrement())
+  data Json
 
-    created_at DateTime @default(now())
-    updated_at DateTime @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
-    resume_id Int @unique
-    resume Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+  resume_id Int    @unique
+  resume    Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
 }
 
 model ResumeAnalysis {
-  id             Int      @id @default(autoincrement())
-  score          Int
+  id              Int                          @id @default(autoincrement())
+  score           Int
   seniority_level String
-  recommendation ResumeAnalysisRecommendation
-  insights       Json     
-  createdAt      DateTime @default(now())
+  recommendation  ResumeAnalysisRecommendation
+  insights        Json
+  createdAt       DateTime                     @default(now())
 
-  job_id         Int
-  job            Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  updated_by Int?
+  updater    Account? @relation("ResumeAnalysisUpdater", fields: [updated_by], references: [id])
 
-  resume_id       Int      @unique
-  resume Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+  job_id Int
+  job    Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+  resume_id Int    @unique
+  resume    Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
 }

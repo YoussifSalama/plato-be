@@ -162,12 +162,24 @@ export class AgencyService {
                 l_name: true,
                 user_name: true,
                 agency_id: true,
+                teamMember: {
+                    select: {
+                        team: {
+                            select: {
+                                agency: { select: { id: true } }
+                            }
+                        }
+                    }
+                }
             },
         });
         if (!account) {
             throw new BadRequestException("Account not found.");
         }
         const name = `${account.f_name} ${account.l_name}`.trim();
+        const agency_id = account.teamMember?.team?.agency?.id ?? (account.agency_id ?? null);
+        const is_member = Boolean(account.teamMember);
+
         return responseFormatter(
             {
                 f_name: account.f_name ?? "",
@@ -175,7 +187,8 @@ export class AgencyService {
                 user_name: account.user_name ?? "",
                 name,
                 email: account.email,
-                agency_id: account.agency_id ?? null,
+                agency_id,
+                is_member,
             },
             undefined,
             "Account data retrieved.",
@@ -383,20 +396,37 @@ export class AgencyService {
     async getAgencyOverview(accountId: number) {
         const account = await this.prisma.account.findUnique({
             where: { id: accountId },
-            include: { agency: true },
+            include: {
+                agency: true,
+                teamMember: {
+                    include: {
+                        team: {
+                            include: {
+                                agency: true,
+                            },
+                        },
+                    },
+                },
+            },
         });
+
         if (!account) {
             throw new BadRequestException("Account not found.");
         }
-        const agency = account.agency;
+
+        const isATeamMember = Boolean(account.teamMember);
+        const agency = isATeamMember ? account.teamMember?.team?.agency : account.agency;
+
         const isComplete = Boolean(
             agency?.company_name &&
             agency?.organization_url &&
             agency?.company_size &&
             agency?.company_industry
         );
+
         return responseFormatter(
             {
+                isATeamMember,
                 isComplete,
                 agency: agency
                     ? {
@@ -417,20 +447,32 @@ export class AgencyService {
     async getAgencyStatus(accountId: number) {
         const account = await this.prisma.account.findUnique({
             where: { id: accountId },
-            include: { agency: true },
+            include: { agency: true, teamMember: { include: { team: { include: { agency: true } } } } },
         });
         if (!account) {
             throw new BadRequestException("Account not found.");
         }
-        const agency = account.agency;
-        const agencyId = account.agency_id ?? agency?.id ?? null;
-        const hasAgency = Boolean(agencyId);
-        const isComplete = Boolean(
-            agency?.company_name &&
-            agency?.organization_url &&
-            agency?.company_size &&
-            agency?.company_industry
-        );
+
+        let agencyId = account.agency_id ?? account.agency?.id ?? null;
+        let isComplete = false;
+        let hasAgency = false;
+
+        if (account.teamMember) {
+            agencyId = account.teamMember.team?.agency?.id ?? null;
+            hasAgency = Boolean(agencyId);
+            isComplete = true; // Team members don't need to complete the agency profile themselves usually, or we assume it's complete to allow them access.
+        } else {
+            const agency = account.agency;
+            agencyId = account.agency_id ?? agency?.id ?? null;
+            hasAgency = Boolean(agencyId);
+            isComplete = Boolean(
+                agency?.company_name &&
+                agency?.organization_url &&
+                agency?.company_size &&
+                agency?.company_industry
+            );
+        }
+
         return responseFormatter(
             { agencyId, hasAgency, isComplete },
             undefined,
@@ -442,12 +484,14 @@ export class AgencyService {
     async getAgencyDashboard(accountId: number) {
         const account = await this.prisma.account.findUnique({
             where: { id: accountId },
-            select: { agency_id: true },
+            select: { agency_id: true, teamMember: { select: { team: { select: { agency: { select: { id: true } } } } } } },
         });
-        if (!account?.agency_id) {
+
+        const agencyId = account?.teamMember?.team?.agency?.id ?? (account?.agency_id ?? null);
+
+        if (!agencyId) {
             throw new BadRequestException("Agency not found.");
         }
-        const agencyId = account.agency_id;
 
         const [
             totalJobs,

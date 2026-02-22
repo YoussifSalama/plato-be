@@ -71,12 +71,13 @@ export class InboxService {
     private async getAgencyId(accountId: number) {
         const account = await this.prisma.account.findUnique({
             where: { id: accountId },
-            select: { agency_id: true },
+            select: { agency_id: true, teamMember: { select: { team: { select: { agency: { select: { id: true } } } } } } },
         });
-        if (!account?.agency_id) {
+        const agencyId = account?.teamMember?.team?.agency?.id ?? account?.agency_id;
+        if (!agencyId) {
             throw new BadRequestException("Agency not found.");
         }
-        return account.agency_id;
+        return agencyId;
     }
 
     async getInboxAgency(accountId: number) {

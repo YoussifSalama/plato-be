@@ -1,15 +1,16 @@
 export interface TeamInvitationEmailData {
-    orgId: string;
-    invitationCode: string;
-    agencyName: string;
-    frontendBaseUrl: string;
-    expiresInMinutes: number;
+  orgId: string;
+  invitationCode: string;
+  agencyName: string;
+  frontendBaseUrl: string;
+  expiresInMinutes: number;
 }
 
 const TeamInvitationTemplate = ({ payload }: { payload: TeamInvitationEmailData }) => {
-    const { orgId, invitationCode, agencyName, frontendBaseUrl, expiresInMinutes } = payload;
+  const { orgId, invitationCode, agencyName, frontendBaseUrl, expiresInMinutes } = payload;
+  console.log('Generating email with data:', payload);
 
-    return `
+  return `
 <!doctype html>
 <html>
   <head>
@@ -69,7 +70,7 @@ const TeamInvitationTemplate = ({ payload }: { payload: TeamInvitationEmailData 
                 <table border="0" cellspacing="0" cellpadding="0" align="center">
                   <tr>
                     <td align="center" bgcolor="#4f46e5" style="border-radius:8px;">
-                      <a href="${frontendBaseUrl}/join-team?org=${orgId}&code=${invitationCode}"
+                      <a href="${frontendBaseUrl}/auth/join-team?org=${orgId}&code=${invitationCode}"
                          style="display:inline-block;padding:12px 24px;
                                 font-size:14px;font-weight:bold;
                                 color:#ffffff;text-decoration:none;

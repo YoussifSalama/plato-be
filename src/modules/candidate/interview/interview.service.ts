@@ -1,10 +1,9 @@
 import { Agency, Job, ResumeAnalysis, ResumeStructured, InvitationTokenStatus, Prisma, InterviewSessionStatus } from '@generated/prisma';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import OpenAI from 'openai';
 import { PrismaService } from 'src/modules/prisma/prisma.service';
 import { SpeechService } from 'src/modules/speech/speech.service';
-import { OpenAI } from 'openai';
-import { OpenAiService } from 'src/shared/services/openai.service';
 import AiInterviewPrompt from 'src/shared/ai/candidate/prompts/ai.interview.prompt';
 import GenerateReferenceQuestions from 'src/shared/ai/candidate/prompts/ai.refrence.prompt';
 import { InterviewLanguage } from './dto/create-interview-resources.dto';
@@ -21,24 +20,27 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { GetInterviewSessionsDto } from './dto/get-interview-sessions.dto';
 import { PaginationHelper } from 'src/shared/helpers/features/pagination';
-
 import { InboxService } from 'src/modules/agency/inbox/inbox.service';
+import { OpenAiKeyRotator } from 'src/shared/helpers/ai/openai-key-rotator';
 
 @Injectable()
 export class InterviewService {
-    private readonly openai: OpenAI;
+    private readonly keyRotator: OpenAiKeyRotator;
 
     constructor(
         private readonly prisma: PrismaService,
         private readonly speechService: SpeechService,
         private readonly paginationHelper: PaginationHelper,
-        private readonly configService: ConfigService,
-        private readonly openaiService: OpenAiService,
-        private readonly inboxService: InboxService
+        private readonly inboxService: InboxService,
+        private readonly configService: ConfigService
     ) {
-        this.openai = new OpenAI({
-            apiKey: this.configService.get<string>("OPENAI_API_KEY") ?? "",
-        });
+        const apiKeys = this.configService.get<string[]>("env.openai.apiKeys") ?? [];
+        if (!apiKeys.length) throw new Error("No OpenAI API keys configured.");
+        this.keyRotator = new OpenAiKeyRotator(apiKeys);
+    }
+
+    private getOpenAiClient(): OpenAI {
+        return new OpenAI({ apiKey: this.keyRotator.next() });
     }
 
     private toJsonSnapshot<T>(value: T): T {
@@ -132,7 +134,7 @@ export class InterviewService {
 
     private buildClosingMessage(language: "ar" | "en") {
         if (language === "en") {
-            return "Thanks for your time. That’s all the questions I have for now. We’ll get back to you soon.";
+            return "Thanks for your time. That's all the questions I have for now. We'll get back to you soon.";
         }
         return "شكرًا على وقتك. كده خلّصنا أسئلة المقابلة. هنرجعلك قريب جدًا.";
     }
@@ -167,7 +169,7 @@ export class InterviewService {
     }
 
     private async requestQuestions(prompt: string): Promise<string[]> {
-        const completion = await this.openai.chat.completions.create({
+        const completion = await this.getOpenAiClient().chat.completions.create({
             model: "gpt-4o",
             messages: [{ role: "system", content: prompt }],
         });
@@ -253,7 +255,7 @@ export class InterviewService {
         });
 
         const completion = await this.withTimeout(
-            this.openai.chat.completions.create({
+            this.getOpenAiClient().chat.completions.create({
                 model: "gpt-4o",
                 messages: [{ role: "system", content: prompt }],
             }),
@@ -314,8 +316,6 @@ export class InterviewService {
             )
             : null;
 
-
-        // Notify agency (Using a side-effect, not blocking response)
         this.notifyInterviewStatus(session.id, InterviewSessionStatus.active).catch(() => { });
 
         return {
@@ -344,7 +344,6 @@ export class InterviewService {
         }
         const selectedLanguage = interviewResources?.language === "en" ? "en" : "ar";
 
-        // Notify agency
         this.notifyInterviewStatus(session.id, InterviewSessionStatus.active).catch(() => { });
 
         return {
@@ -370,18 +369,16 @@ export class InterviewService {
             if (!rawValue) return;
             const normalized = rawValue.toLowerCase().trim();
 
-            // Detection for Arabic
             if (
                 normalized.includes("arabic") ||
                 normalized === "ar" ||
                 normalized.includes("عربي") ||
                 normalized.includes("العربية") ||
-                /[\u0600-\u06FF]/.test(rawValue) // Any Arabic characters
+                /[\u0600-\u06FF]/.test(rawValue)
             ) {
                 languages.add(InterviewLanguage.ar);
             }
 
-            // Detection for English
             if (
                 normalized.includes("english") ||
                 normalized === "en" ||
@@ -437,7 +434,6 @@ export class InterviewService {
         const requestedLanguage = language === "en" ? InterviewLanguage.en : InterviewLanguage.ar;
         let selectedLanguage: InterviewLanguage;
         if (resolvedAvailable.length === 0) {
-            // Job language not set or unrecognized; default to requested or Arabic.
             selectedLanguage = language ? requestedLanguage : InterviewLanguage.ar;
         } else if (resolvedAvailable.length === 1) {
             selectedLanguage = resolvedAvailable[0];
@@ -860,9 +856,8 @@ export class InterviewService {
         return qaLog;
     }
 
-    async createRealtimeSession(model = "gpt-4o-realtime-preview", voice = "cedar") {
-        const { index } = this.openaiService.getRotatedClient();
-        const apiKey = this.openaiService.getApiKey(index);
+    async createRealtimeSession(model = "gpt-4o-realtime-preview", voice = "ash") {
+        const apiKey = this.keyRotator.next();
         if (!apiKey) {
             throw new BadRequestException("OpenAI API key is not configured.");
         }
@@ -883,8 +878,6 @@ export class InterviewService {
         return response.json();
     }
 
-
-    // interview processing
     async IntiateSessionAndCreateChunk(interview_token: number) {
         let session = await this.prisma.interviewSession.findFirst({
             where: {
@@ -973,7 +966,6 @@ export class InterviewService {
         }
         let chunksDirectoryName = session.chunks_directory_name;
         if (!chunksDirectoryName) {
-            // create chunks directory
             chunksDirectoryName = getSessionChunksDirectory(session.id);
             await this.prisma.interviewSession.update({
                 where: {
@@ -1007,7 +999,6 @@ export class InterviewService {
         }
         let chunksDirectoryName = session.chunks_directory_name;
         if (!chunksDirectoryName) {
-            // create chunks directory if missing to keep behavior consistent
             chunksDirectoryName = getSessionChunksDirectory(session.id);
             await this.prisma.interviewSession.update({
                 where: {
@@ -1120,7 +1111,6 @@ export class InterviewService {
             )
             : null;
 
-        // Advance to the next group folder for the upcoming answer
         getAnswerGroupDirectory(chunksDirectoryName, resolvedGroupIndex + 1, true);
 
         await this.prisma.interviewSession.update({

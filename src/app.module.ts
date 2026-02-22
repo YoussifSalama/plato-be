@@ -18,6 +18,7 @@ import { InterviewModule } from './modules/candidate/interview/interview.module'
 import { SpeechModule } from "./modules/speech/speech.module";
 import { ProfileModule } from "./modules/candidate/profile/profile.module";
 import { TeamModule } from './modules/agency/team/team.module';
+import { SharedModule } from "./shared/shared.module";
 
 @Module({
   imports: [
@@ -42,7 +43,8 @@ import { TeamModule } from './modules/agency/team/team.module';
     InterviewModule,
     SpeechModule,
     ProfileModule,
-    TeamModule
+    TeamModule,
+    SharedModule
   ],
   providers: [],
 })

@@ -33,12 +33,13 @@ export class InvitationService {
     private async getAgencyId(accountId: number) {
         const account = await this.prisma.account.findUnique({
             where: { id: accountId },
-            select: { agency_id: true },
+            select: { agency_id: true, teamMember: { select: { team: { select: { agency: { select: { id: true } } } } } } },
         });
-        if (!account?.agency_id) {
+        const agencyId = account?.teamMember?.team?.agency?.id ?? account?.agency_id;
+        if (!agencyId) {
             throw new BadRequestException("Agency not found.");
         }
-        return account.agency_id;
+        return agencyId;
     }
 
     private async getRecipientFromResume(resumeId: number) {
@@ -84,7 +85,7 @@ export class InvitationService {
         return candidate?.id ?? null;
     }
 
-    async createInvitation(agencyId: number, resumeId: number, candidateId?: number | null) {
+    async createInvitation(agencyId: number, resumeId: number, candidateId?: number | null, accountId?: number) {
         const { token, expires_at } = this.randomUuidService.generateInvitationToken(2);
         return this.prisma.$transaction(async (tx) => {
             const resume = await tx.resume.findUnique({
@@ -127,6 +128,7 @@ export class InvitationService {
                         to_id: resumeId,
                         from_id: agencyId,
                         job_id: resume.job_id,
+                        ...(accountId ? { updated_by: accountId } : {}),
                     } as Prisma.InvitationUncheckedCreateInput,
                     select: { id: true },
                 });
@@ -159,6 +161,7 @@ export class InvitationService {
             dto.resume_id,
             dto.recipient_email,
             dto.recipient_name,
+            accountId
         );
     }
 
@@ -203,7 +206,8 @@ export class InvitationService {
             agencyId,
             application.resume_id,
             application.candidate.email ?? undefined,
-            candidateName
+            candidateName,
+            // Assuming direct invitation uses the same system or passes accountId if modified later
         );
     }
 
@@ -212,6 +216,7 @@ export class InvitationService {
         resumeId: number,
         recipientEmail?: string,
         recipientName?: string,
+        accountId?: number
     ) {
         try {
             let resolvedEmail = recipientEmail ?? null;
@@ -229,7 +234,7 @@ export class InvitationService {
                 `Invitation recipient resolved (agencyId=${agencyId}, resumeId=${resumeId}, email=${resolvedEmail}, source=${emailSource}).`,
             );
             const candidateId = await this.getCandidateIdByEmail(resolvedEmail);
-            const invitation = await this.createInvitation(agencyId, resumeId, candidateId);
+            const invitation = await this.createInvitation(agencyId, resumeId, candidateId, accountId);
             const frontendBaseUrl = this.getFrontendBaseUrl();
             const invitationUrl = `${frontendBaseUrl}/invitation?token=${invitation.token}`;
             const logoUrl = `${frontendBaseUrl}/brand/plato-logo.png`;

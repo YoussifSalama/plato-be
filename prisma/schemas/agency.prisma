@@ -1,60 +1,68 @@
 model Account {
     id Int @id @default(autoincrement())
 
-    email String @unique
-    f_name String
-    l_name String
+    email     String  @unique
+    f_name    String
+    l_name    String
     user_name String
-    verified Boolean @default(false)
+    verified  Boolean @default(false)
 
-    agency_id Int? @unique
-    agency Agency? @relation(fields: [agency_id], references: [id], onDelete: SetNull)
-    
-    credential_id Int @unique
-    credential Credential @relation(fields: [credential_id], references: [id], onDelete: Cascade)
-    
-    tokens Token[]
-    otps Otp[]
+    agency_id Int?    @unique
+    agency    Agency? @relation(fields: [agency_id], references: [id], onDelete: SetNull)
+
+    credential_id Int        @unique
+    credential    Credential @relation(fields: [credential_id], references: [id], onDelete: Cascade)
+
+    tokens                Token[]
+    otps                  Otp[]
     verify_account_tokens VerifyAccountToken[]
 
-    teamMember TeamMember? @relation("AccountTeamMember") 
+    teamMember TeamMember? @relation("AccountTeamMember")
+
+    updated_jobs        Job[]         @relation("JobUpdater")
+    updated_job_prompts JobAiPrompt[] @relation("JobUpdater")
+    updated_job_matches JobMatch[]    @relation("JobUpdater")
+
+    updated_resumes         Resume[]         @relation("ResumeUpdater")
+    updated_resume_analyses ResumeAnalysis[] @relation("ResumeAnalysisUpdater")
+    updated_invitations     Invitation[]     @relation("InvitationUpdater")
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }
 
-model Agency{
-    id Int @id @default(autoincrement())
-    company_name String?
-    organization_url String?
-    company_size String?
-    company_industry String?
+model Agency {
+    id                  Int     @id @default(autoincrement())
+    company_name        String?
+    organization_url    String?
+    company_size        String?
+    company_industry    String?
     company_description String?
-    organization_id String? @unique
+    organization_id     String? @unique
 
     account Account?
 
-    team_id Int? @unique  
-    team Team? @relation(fields: [team_id], references: [id])
+    team_id Int?  @unique
+    team    Team? @relation(fields: [team_id], references: [id])
 
     team_invitations TeamInvitation[]
 
     jobs Job[]
-    
+
     invitations Invitation[]
-    
+
     inboxes Inbox[]
-    
+
     interview_resources InterviewResources[]
-    
+
     interview_sessions InterviewSession[]
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }
 
-model Credential{
-    id Int @id @default(autoincrement())
+model Credential {
+    id            Int    @id @default(autoincrement())
     password_hash String
 
     account Account?
@@ -63,8 +71,7 @@ model Credential{
     updated_at DateTime @updatedAt
 }
 
-
-model Team{
+model Team {
     id Int @id @default(autoincrement())
 
     agency Agency?
@@ -76,16 +83,16 @@ model Team{
 }
 
 model TeamMember {
-    id Int @id @default(autoincrement())
-    name String?
-    email String @unique
+    id    Int     @id @default(autoincrement())
+    name  String?
+    email String  @unique
     phone String? @unique
 
     team_id Int?
-    team Team? @relation(fields: [team_id], references: [id])
+    team    Team? @relation(fields: [team_id], references: [id])
 
-    account_id Int? @unique
-    account Account? @relation("AccountTeamMember", fields: [account_id], references: [id])
+    account_id Int?     @unique
+    account    Account? @relation("AccountTeamMember", fields: [account_id], references: [id])
 
     invitations TeamInvitation[]
 
@@ -93,55 +100,55 @@ model TeamMember {
     updated_at DateTime @updatedAt
 }
 
-model TeamInvitation{
-    id Int @id @default(autoincrement())
-    code String @unique
-    revoked Boolean @default(false)
+model TeamInvitation {
+    id         Int      @id @default(autoincrement())
+    code       String   @unique
+    revoked    Boolean  @default(false)
     expires_at DateTime
 
     agency_id Int
-    agency Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+    agency    Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
 
     member_id Int
-    member TeamMember @relation(fields: [member_id], references: [id])
+    member    TeamMember @relation(fields: [member_id], references: [id])
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }
 
-model Token{
-    id Int @id @default(autoincrement())
+model Token {
+    id            Int    @id @default(autoincrement())
     refresh_token String
 
     account_id Int
-    account Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
+    account    Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }
 
-model Otp{
-    id Int @id @default(autoincrement())
-    code String
-    purpose OtpPurpose
+model Otp {
+    id         Int        @id @default(autoincrement())
+    code       String
+    purpose    OtpPurpose
     expires_at DateTime
-    used_at DateTime?
+    used_at    DateTime?
 
     account_id Int
-    account Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
+    account    Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }
 
-model VerifyAccountToken{
-    id Int @id @default(autoincrement())
-    token String @unique
+model VerifyAccountToken {
+    id         Int       @id @default(autoincrement())
+    token      String    @unique
     expires_at DateTime
-    used_at DateTime?
+    used_at    DateTime?
 
     account_id Int
-    account Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
+    account    Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt

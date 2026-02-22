@@ -41,12 +41,13 @@ export class JobService {
     private async getAgencyId(accountId: number) {
         const account = await this.prisma.account.findUnique({
             where: { id: accountId },
-            select: { agency_id: true },
+            select: { agency_id: true, teamMember: { select: { team: { select: { agency: { select: { id: true } } } } } } },
         });
-        if (!account?.agency_id) {
+        const agencyId = account?.teamMember?.team?.agency?.id ?? account?.agency_id;
+        if (!agencyId) {
             throw new BadRequestException("Agency not found.");
         }
-        return account.agency_id;
+        return agencyId;
     }
 
     async createJob(accountId: number, dto: CreateJobDto) {
@@ -59,6 +60,7 @@ export class JobService {
             data: {
                 ...dto,
                 agency_id: agencyId,
+                updated_by: accountId,
                 soft_skills: dto.soft_skills ?? [],
                 technical_skills: dto.technical_skills ?? [],
                 languages: dto.languages ?? [],
@@ -88,6 +90,7 @@ export class JobService {
             where: { id: jobId },
             data: {
                 ...dto,
+                updated_by: accountId,
                 ...(dto.soft_skills ? { soft_skills: dto.soft_skills } : {}),
                 ...(dto.technical_skills ? { technical_skills: dto.technical_skills } : {}),
                 ...(dto.languages ? { languages: dto.languages } : {}),
@@ -278,7 +281,7 @@ export class JobService {
         }
         return jobClient.update({
             where: { id: jobId },
-            data: { is_active: isActive },
+            data: { is_active: isActive, updated_by: accountId },
         });
     }
 
@@ -302,6 +305,7 @@ export class JobService {
                 data: {
                     target: dto.target,
                     prompt: dto.prompt,
+                    updated_by: accountId,
                     evaluation: dto.evaluation as unknown as Prisma.InputJsonValue,
                 },
             });
@@ -310,6 +314,7 @@ export class JobService {
             data: {
                 target: dto.target,
                 prompt: dto.prompt,
+                updated_by: accountId,
                 evaluation: dto.evaluation as unknown as Prisma.InputJsonValue,
             },
         });
@@ -319,7 +324,7 @@ export class JobService {
             };
         }).job.update({
             where: { id: jobId },
-            data: { job_ai_prompt_id: prompt.id },
+            data: { job_ai_prompt_id: prompt.id, updated_by: accountId },
         });
         return prompt;
     }

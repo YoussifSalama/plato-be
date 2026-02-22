@@ -1,4 +1,3 @@
-import { Prisma } from '@generated/prisma';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from 'src/modules/prisma/prisma.service';
@@ -50,9 +49,18 @@ export class TeamService {
     }
 
     async sendInvitation(dto: SendInvitationDto) {
-        const { agencyId, email, memberName } = dto;
+        const { agencyId: accountId, email, memberName } = dto;
 
-        const agency = await this.ensureAgencyHasOrganizationId(agencyId);
+        const account = await this.prisma.account.findUnique({
+            where: { id: accountId },
+            include: { teamMember: true },
+        });
+
+        if (!account) throw new BadRequestException('Account not found.');
+        if (account.teamMember) throw new BadRequestException('Only agency owners can invite team members.');
+        if (!account.agency_id) throw new BadRequestException('You need an agency to invite team members.');
+
+        const agency = await this.ensureAgencyHasOrganizationId(account.agency_id);
 
         await this.ensureThisEmailNotBelongsToAnotherAccount(email);
 
@@ -92,22 +100,17 @@ export class TeamService {
                         where: { id: agency.id },
                         data: { team_id: team.id },
                     });
-                    if (!teamMember.team_id) {
-                        await tx.teamMember.update({
-                            where: { id: teamMember.id },
-                            data: { team: { connect: { id: team.id } } },
-                        });
-                    }
                 }
 
                 return newInvitation;
             });
 
+            const frontendBaseUrl = this.configService.get<string>('env.frontendUrl') || '';
             const templateObj: TeamInvitationEmailData = {
                 orgId: agency.organization_id as string,
                 invitationCode: token,
                 agencyName: agency.company_name || 'Agency',
-                frontendBaseUrl: this.configService.get<string>('FRONTEND_BASE_URL') || '',
+                frontendBaseUrl,
                 expiresInMinutes: this.invitationExpiryMinutes,
             };
 
@@ -126,28 +129,197 @@ export class TeamService {
         }
     }
 
-    async useInvitation(invitationCode: string) {
-        const invitation = await this.prisma.teamInvitation.findUnique({
-            where: { code: invitationCode },
-            include: { agency: true, member: true },
+    async useInvitation(org: string, code: string) {
+        const agency = await this.prisma.agency.findUnique({
+            where: { organization_id: org },
+            include: { team: { include: { members: true } } },
         });
 
-        if (!invitation) throw new BadRequestException('Invalid invitation code.');
-        if (invitation.revoked) throw new BadRequestException('Invitation has been revoked.');
-        if (invitation.expires_at < new Date()) throw new BadRequestException('Invitation expired.');
+        if (!agency) throw new BadRequestException('Invalid organization.');
 
-        let agency = invitation.agency;
-        let team = await this.prisma.team.findUnique({ where: { id: agency.team_id ?? 0 } });
+        const invitation = await this.prisma.teamInvitation.findFirst({
+            where: {
+                code,
+                agency_id: agency.id,
+                revoked: false,
+                expires_at: { gt: new Date() },
+            },
+            include: {
+                member: { include: { account: true } },
+            },
+        });
 
-        if (!team) {
-            team = await this.prisma.team.create({ data: { agency: { connect: { id: agency.id } } } });
-            await this.prisma.agency.update({ where: { id: agency.id }, data: { team_id: team.id } });
-        }
+        if (!invitation) throw new BadRequestException('Invalid or expired invitation code.');
 
-        if (invitation.member.team_id !== team.id) {
-            await this.prisma.teamMember.update({ where: { id: invitation.member.id }, data: { team: { connect: { id: team.id } } } });
-        }
+        const alreadyOnTeam =
+            agency.team &&
+            agency.team.members.some((m) => m.id === invitation.member.id);
 
-        return team;
+        if (alreadyOnTeam) throw new BadRequestException('Member is already part of this team.');
+
+        return await this.prisma.$transaction(async (tx) => {
+            let teamId = agency.team_id;
+
+            if (!teamId) {
+                const team = await tx.team.create({
+                    data: { agency: { connect: { id: agency.id } } },
+                });
+                await tx.agency.update({
+                    where: { id: agency.id },
+                    data: { team_id: team.id },
+                });
+                teamId = team.id;
+            }
+
+            await tx.teamMember.update({
+                where: { id: invitation.member.id },
+                data: { team: { connect: { id: teamId } } },
+            });
+
+            await tx.teamInvitation.update({
+                where: { id: invitation.id },
+                data: { revoked: true },
+            });
+
+            return await tx.team.findUnique({
+                where: { id: teamId },
+                include: { members: { include: { account: true } }, agency: true },
+            });
+        });
+    }
+
+    async checkInvitation(org: string, code: string) {
+        const agency = await this.prisma.agency.findUnique({
+            where: { organization_id: org },
+            select: {
+                id: true,
+                company_name: true,
+                organization_id: true,
+                organization_url: true,
+            },
+        });
+
+        if (!agency) throw new BadRequestException('Invalid organization.');
+
+        const invitation = await this.prisma.teamInvitation.findFirst({
+            where: {
+                code,
+                agency_id: agency.id,
+                revoked: false,
+                expires_at: { gt: new Date() },
+            },
+            select: {
+                id: true,
+                expires_at: true,
+                member: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                    },
+                },
+            },
+        });
+
+        if (!invitation) throw new BadRequestException('Invalid or expired invitation code.');
+
+        return {
+            valid: true,
+            agency: {
+                name: agency.company_name,
+                organization_id: agency.organization_id,
+                organization_url: agency.organization_url,
+            },
+            member: {
+                name: invitation.member.name,
+                email: invitation.member.email,
+            },
+            expires_at: invitation.expires_at,
+        };
+    }
+
+    async signupWithInvitation(org: string, code: string, dto: {
+        f_name: string;
+        l_name: string;
+        user_name: string;
+        password: string;
+    }) {
+        const agency = await this.prisma.agency.findUnique({
+            where: { organization_id: org },
+            include: { team: { include: { members: true } } },
+        });
+
+        if (!agency) throw new BadRequestException('Invalid organization.');
+
+        const invitation = await this.prisma.teamInvitation.findFirst({
+            where: {
+                code,
+                agency_id: agency.id,
+                revoked: false,
+                expires_at: { gt: new Date() },
+            },
+            include: { member: true },
+        });
+
+        if (!invitation) throw new BadRequestException('Invalid or expired invitation code.');
+
+        const existingAccount = await this.prisma.account.findFirst({
+            where: { email: invitation.member.email },
+        });
+
+        if (existingAccount) throw new BadRequestException('An account with this email already exists.');
+
+        const existingUsername = await this.prisma.account.findFirst({
+            where: { user_name: dto.user_name },
+        });
+
+        if (existingUsername) throw new BadRequestException('Username is already taken.');
+
+        return await this.prisma.$transaction(async (tx) => {
+            const bcrypt = await import('bcrypt');
+            const password_hash = await bcrypt.hash(dto.password, 10);
+
+            const credential = await tx.credential.create({
+                data: { password_hash },
+            });
+
+            // إنشاء الفريق لو مش موجود
+            let teamId = agency.team_id;
+            if (!teamId) {
+                const team = await tx.team.create({
+                    data: { agency: { connect: { id: agency.id } } },
+                });
+                await tx.agency.update({
+                    where: { id: agency.id },
+                    data: { team_id: team.id },
+                });
+                teamId = team.id;
+            }
+
+            // ربط العضو بالـ team بعد إنشاء الحساب
+            await tx.teamMember.update({
+                where: { id: invitation.member.id },
+                data: { team: { connect: { id: teamId } } },
+            });
+
+            const account = await tx.account.create({
+                data: {
+                    f_name: dto.f_name,
+                    l_name: dto.l_name,
+                    user_name: dto.user_name,
+                    email: invitation.member.email,
+                    verified: true,
+                    credential: { connect: { id: credential.id } },
+                    teamMember: { connect: { id: invitation.member.id } },
+                },
+            });
+
+            await tx.teamInvitation.update({
+                where: { id: invitation.id },
+                data: { revoked: true },
+            });
+
+            return { message: 'Account created successfully. You can now sign in.' };
+        });
     }
 }

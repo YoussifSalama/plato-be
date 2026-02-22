@@ -44,6 +44,9 @@ model Job{
     job_ai_prompt_id Int? @unique
     jobAiPrompt JobAiPrompt? @relation(fields:[job_ai_prompt_id],references:[id],onDelete: Cascade)
 
+    updated_by Int?
+    updater Account? @relation("JobUpdater", fields: [updated_by], references: [id])
+
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }
@@ -57,6 +60,9 @@ model JobAiPrompt{
 
     job Job?
 
+    updated_by Int?
+    updater Account? @relation("JobUpdater", fields: [updated_by], references: [id])
+
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }
@@ -69,6 +75,9 @@ model JobMatch{
     ai_reasoning String? @db.Text
     matched_skills String[]
     missing_skills String[]
+
+    updated_by Int?
+    updater Account? @relation("JobUpdater", fields: [updated_by], references: [id])
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt

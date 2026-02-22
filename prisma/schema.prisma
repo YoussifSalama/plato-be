@@ -161,54 +161,60 @@ enum InterviewSessionStatus{
 }
 
 // --- resume.prisma ---
-model Resume{
-    id Int @id @default(autoincrement())
-    name String
-    file_type ResumeFileTypes
-    link String
-    parsed String?
+model Resume {
+  id        Int             @id @default(autoincrement())
+  name      String
+  file_type ResumeFileTypes
+  link      String
+  parsed    String?
 
-    job_id Int
-    job Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  job_id Int
+  job    Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
 
-    created_at DateTime @default(now())
-    updated_at DateTime @updatedAt
+  updated_by Int?
+  updater    Account? @relation("ResumeUpdater", fields: [updated_by], references: [id])
 
-    auto_invited Boolean @default(false)
-    auto_shortlisted Boolean @default(false)
-    auto_denied Boolean @default(false)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
-    invitation Invitation?
-    resume_structured ResumeStructured?
-    resume_analysis ResumeAnalysis?
-    interview_resources InterviewResources[]
-    application JobApplication?
+  auto_invited     Boolean @default(false)
+  auto_shortlisted Boolean @default(false)
+  auto_denied      Boolean @default(false)
+
+  invitation          Invitation?
+  resume_structured   ResumeStructured?
+  resume_analysis     ResumeAnalysis?
+  interview_resources InterviewResources[]
+  application         JobApplication?
 }
 
-model ResumeStructured{
-    id Int @id @default(autoincrement())
-    data Json
+model ResumeStructured {
+  id   Int  @id @default(autoincrement())
+  data Json
 
-    created_at DateTime @default(now())
-    updated_at DateTime @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
-    resume_id Int @unique
-    resume Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+  resume_id Int    @unique
+  resume    Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
 }
 
 model ResumeAnalysis {
-  id             Int      @id @default(autoincrement())
-  score          Int
+  id              Int                          @id @default(autoincrement())
+  score           Int
   seniority_level String
-  recommendation ResumeAnalysisRecommendation
-  insights       Json     
-  createdAt      DateTime @default(now())
+  recommendation  ResumeAnalysisRecommendation
+  insights        Json
+  createdAt       DateTime                     @default(now())
 
-  job_id         Int
-  job            Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  updated_by Int?
+  updater    Account? @relation("ResumeAnalysisUpdater", fields: [updated_by], references: [id])
 
-  resume_id       Int      @unique
-  resume Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+  job_id Int
+  job    Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+  resume_id Int    @unique
+  resume    Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
 }
 
 // --- resume.ai.prisma ---
@@ -231,60 +237,68 @@ model ResumeProcessingBatch{
 model Account {
     id Int @id @default(autoincrement())
 
-    email String @unique
-    f_name String
-    l_name String
+    email     String  @unique
+    f_name    String
+    l_name    String
     user_name String
-    verified Boolean @default(false)
+    verified  Boolean @default(false)
 
-    agency_id Int? @unique
-    agency Agency? @relation(fields: [agency_id], references: [id], onDelete: SetNull)
-    
-    credential_id Int @unique
-    credential Credential @relation(fields: [credential_id], references: [id], onDelete: Cascade)
-    
-    tokens Token[]
-    otps Otp[]
+    agency_id Int?    @unique
+    agency    Agency? @relation(fields: [agency_id], references: [id], onDelete: SetNull)
+
+    credential_id Int        @unique
+    credential    Credential @relation(fields: [credential_id], references: [id], onDelete: Cascade)
+
+    tokens                Token[]
+    otps                  Otp[]
     verify_account_tokens VerifyAccountToken[]
 
-    teamMember TeamMember? @relation("AccountTeamMember") 
+    teamMember TeamMember? @relation("AccountTeamMember")
+
+    updated_jobs        Job[]         @relation("JobUpdater")
+    updated_job_prompts JobAiPrompt[] @relation("JobUpdater")
+    updated_job_matches JobMatch[]    @relation("JobUpdater")
+
+    updated_resumes         Resume[]         @relation("ResumeUpdater")
+    updated_resume_analyses ResumeAnalysis[] @relation("ResumeAnalysisUpdater")
+    updated_invitations     Invitation[]     @relation("InvitationUpdater")
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }
 
-model Agency{
-    id Int @id @default(autoincrement())
-    company_name String?
-    organization_url String?
-    company_size String?
-    company_industry String?
+model Agency {
+    id                  Int     @id @default(autoincrement())
+    company_name        String?
+    organization_url    String?
+    company_size        String?
+    company_industry    String?
     company_description String?
-    organization_id String? @unique
+    organization_id     String? @unique
 
     account Account?
 
-    team_id Int? @unique  
-    team Team? @relation(fields: [team_id], references: [id])
+    team_id Int?  @unique
+    team    Team? @relation(fields: [team_id], references: [id])
 
     team_invitations TeamInvitation[]
 
     jobs Job[]
-    
+
     invitations Invitation[]
-    
+
     inboxes Inbox[]
-    
+
     interview_resources InterviewResources[]
-    
+
     interview_sessions InterviewSession[]
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }
 
-model Credential{
-    id Int @id @default(autoincrement())
+model Credential {
+    id            Int    @id @default(autoincrement())
     password_hash String
 
     account Account?
@@ -293,8 +307,7 @@ model Credential{
     updated_at DateTime @updatedAt
 }
 
-
-model Team{
+model Team {
     id Int @id @default(autoincrement())
 
     agency Agency?
@@ -306,16 +319,16 @@ model Team{
 }
 
 model TeamMember {
-    id Int @id @default(autoincrement())
-    name String?
-    email String @unique
+    id    Int     @id @default(autoincrement())
+    name  String?
+    email String  @unique
     phone String? @unique
 
     team_id Int?
-    team Team? @relation(fields: [team_id], references: [id])
+    team    Team? @relation(fields: [team_id], references: [id])
 
-    account_id Int? @unique
-    account Account? @relation("AccountTeamMember", fields: [account_id], references: [id])
+    account_id Int?     @unique
+    account    Account? @relation("AccountTeamMember", fields: [account_id], references: [id])
 
     invitations TeamInvitation[]
 
@@ -323,55 +336,55 @@ model TeamMember {
     updated_at DateTime @updatedAt
 }
 
-model TeamInvitation{
-    id Int @id @default(autoincrement())
-    code String @unique
-    revoked Boolean @default(false)
+model TeamInvitation {
+    id         Int      @id @default(autoincrement())
+    code       String   @unique
+    revoked    Boolean  @default(false)
     expires_at DateTime
 
     agency_id Int
-    agency Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+    agency    Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
 
     member_id Int
-    member TeamMember @relation(fields: [member_id], references: [id])
+    member    TeamMember @relation(fields: [member_id], references: [id])
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }
 
-model Token{
-    id Int @id @default(autoincrement())
+model Token {
+    id            Int    @id @default(autoincrement())
     refresh_token String
 
     account_id Int
-    account Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
+    account    Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }
 
-model Otp{
-    id Int @id @default(autoincrement())
-    code String
-    purpose OtpPurpose
+model Otp {
+    id         Int        @id @default(autoincrement())
+    code       String
+    purpose    OtpPurpose
     expires_at DateTime
-    used_at DateTime?
+    used_at    DateTime?
 
     account_id Int
-    account Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
+    account    Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }
 
-model VerifyAccountToken{
-    id Int @id @default(autoincrement())
-    token String @unique
+model VerifyAccountToken {
+    id         Int       @id @default(autoincrement())
+    token      String    @unique
     expires_at DateTime
-    used_at DateTime?
+    used_at    DateTime?
 
     account_id Int
-    account Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
+    account    Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
@@ -424,6 +437,9 @@ model Job{
     job_ai_prompt_id Int? @unique
     jobAiPrompt JobAiPrompt? @relation(fields:[job_ai_prompt_id],references:[id],onDelete: Cascade)
 
+    updated_by Int?
+    updater Account? @relation("JobUpdater", fields: [updated_by], references: [id])
+
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }
@@ -436,6 +452,9 @@ model JobAiPrompt{
     is_active Boolean @default(true)
 
     job Job?
+
+    updated_by Int?
+    updater Account? @relation("JobUpdater", fields: [updated_by], references: [id])
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
@@ -450,6 +469,9 @@ model JobMatch{
     matched_skills String[]
     missing_skills String[]
 
+    updated_by Int?
+    updater Account? @relation("JobUpdater", fields: [updated_by], references: [id])
+
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 
@@ -462,39 +484,42 @@ model JobMatch{
 }
 
 // --- invitation.prisma ---
-model Invitation{
+model Invitation {
     id Int @id @default(autoincrement())
-    
-    to_id Int @unique
-    to Resume @relation(fields:[to_id],references:[id])
+
+    to_id Int    @unique
+    to    Resume @relation(fields: [to_id], references: [id])
 
     from_id Int
-    from Agency @relation(fields:[from_id],references:[id])
+    from    Agency @relation(fields: [from_id], references: [id])
 
     job_id Int
-    job Job @relation(fields:[job_id],references:[id], onDelete: Cascade)
+    job    Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
 
     candidate Candidate?
-    tokens InvitationToken[]
+    tokens    InvitationToken[]
+
+    updated_by Int?
+    updater    Account? @relation("InvitationUpdater", fields: [updated_by], references: [id])
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 }
 
-model InvitationToken{
-    id Int @id @default(autoincrement())
-    token String
+model InvitationToken {
+    id         Int                   @id @default(autoincrement())
+    token      String
     expires_at DateTime
-    revoked Boolean @default(false)
-    status InvitationTokenStatus @default(valid)
+    revoked    Boolean               @default(false)
+    status     InvitationTokenStatus @default(valid)
 
     invitation_id Int
-    invitation Invitation @relation(fields:[invitation_id],references:[id])
+    invitation    Invitation @relation(fields: [invitation_id], references: [id])
 
-    candidate_id Int?
-    candidate Candidate? @relation(fields: [candidate_id], references: [id], onDelete: SetNull)
+    candidate_id       Int?
+    candidate          Candidate?          @relation(fields: [candidate_id], references: [id], onDelete: SetNull)
     interview_resource InterviewResources?
-    interview_session InterviewSession?
+    interview_session  InterviewSession?
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt

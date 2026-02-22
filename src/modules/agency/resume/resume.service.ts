@@ -22,18 +22,25 @@ export class ResumeService {
         private readonly invitationService: InvitationService,
     ) { }
 
+    private async getAgencyId(accountId: number) {
+        const account = await this.prisma.account.findUnique({
+            where: { id: accountId },
+            select: { agency_id: true, teamMember: { select: { team: { select: { agency: { select: { id: true } } } } } } },
+        });
+        const agencyId = account?.teamMember?.team?.agency?.id ?? account?.agency_id;
+        if (!agencyId) {
+            throw new BadRequestException("Agency not found.");
+        }
+        return agencyId;
+    }
+
     private async getResumeForAction(resumeId: number, userId: number) {
+        const agencyId = await this.getAgencyId(userId);
         const resume = await this.prisma.resume.findFirst({
             where: {
                 id: resumeId,
                 job: {
-                    agency: {
-                        account: {
-                            is: {
-                                id: userId,
-                            },
-                        },
-                    },
+                    agency_id: agencyId,
                 },
             },
             select: {
@@ -63,16 +70,11 @@ export class ResumeService {
 
     async processResumes(files: Express.Multer.File[], jobId: number, userId: number) {
         try {
+            const agencyId = await this.getAgencyId(userId);
             const job = await this.prisma.job.findFirst({
                 where: {
                     id: jobId,
-                    agency: {
-                        account: {
-                            is: {
-                                id: userId,
-                            },
-                        },
-                    },
+                    agency_id: agencyId,
                 },
                 select: { id: true },
             });
@@ -108,6 +110,7 @@ export class ResumeService {
                     file_type: fileType,
                     link: file.filename,
                     job_id: jobId,
+                    updated_by: userId,
                 };
             });
             const createResult = await this.prisma.resume.createMany({
@@ -132,17 +135,12 @@ export class ResumeService {
     }
 
     async getResumes(getResumesDto: GetResumesDto, userId: number) {
+        const agencyId = await this.getAgencyId(userId);
         const partialMatching = getResumesDto.partial_matching?.trim();
         const filters: Prisma.ResumeWhereInput[] = [];
         filters.push({
             job: {
-                agency: {
-                    account: {
-                        is: {
-                            id: userId,
-                        },
-                    },
-                },
+                agency_id: agencyId,
             },
         });
 
@@ -273,17 +271,12 @@ export class ResumeService {
     }
 
     async getResume(id: number, userId: number) {
+        const agencyId = await this.getAgencyId(userId);
         const resume = await this.prisma.resume.findFirst({
             where: {
                 id,
                 job: {
-                    agency: {
-                        account: {
-                            is: {
-                                id: userId,
-                            },
-                        },
-                    },
+                    agency_id: agencyId,
                 },
             },
             select: {
@@ -320,17 +313,12 @@ export class ResumeService {
     }
 
     async getResumeDetails(id: number, userId: number) {
+        const agencyId = await this.getAgencyId(userId);
         const resume = await this.prisma.resume.findFirst({
             where: {
                 id,
                 job: {
-                    agency: {
-                        account: {
-                            is: {
-                                id: userId,
-                            },
-                        },
-                    },
+                    agency_id: agencyId,
                 },
             },
             select: {
@@ -376,7 +364,7 @@ export class ResumeService {
         const resume = await this.getResumeForAction(resumeId, userId);
         const updated = await this.prisma.resume.update({
             where: { id: resume.id },
-            data: { auto_denied: dto.auto_denied },
+            data: { auto_denied: dto.auto_denied, updated_by: userId },
         });
         return responseFormatter(updated, null, "Resume updated successfully", 200);
     }
@@ -391,7 +379,7 @@ export class ResumeService {
         }
         const updated = await this.prisma.resume.update({
             where: { id: resume.id },
-            data: { auto_shortlisted: dto.auto_shortlisted },
+            data: { auto_shortlisted: dto.auto_shortlisted, updated_by: userId },
         });
         return responseFormatter(updated, null, "Resume updated successfully", 200);
     }
@@ -425,12 +413,14 @@ export class ResumeService {
             resume.id,
             recipientEmail,
             recipientName,
+            userId
         );
         const updated = await this.prisma.resume.update({
             where: { id: resume.id },
             data: {
                 auto_shortlisted: true,
                 auto_invited: true,
+                updated_by: userId,
             },
         });
         return responseFormatter(updated, null, "Invitation sent successfully", 200);
