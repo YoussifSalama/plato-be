@@ -19,7 +19,7 @@ import { JobMatchingModule } from "./modules/candidate/job-matching/job-matching
 import { ApplicationModule } from "./modules/candidate/application/application.module";
 import { AgencyApplicationModule } from "./modules/agency/application/application.module";
 import { TeamModule } from "./modules/agency/team/team.module";
-
+import { AgencyInterviewModule } from "./modules/agency/interview/interview.module";
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.enableCors();
@@ -90,7 +90,8 @@ async function bootstrap() {
       InvitationModule,
       InboxModule,
       AgencyApplicationModule,
-      TeamModule
+      TeamModule,
+      AgencyInterviewModule
     ],
   });
   SwaggerModule.setup('api/agency', app, agencyDocument);

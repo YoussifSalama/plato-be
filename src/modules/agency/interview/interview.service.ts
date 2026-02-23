@@ -4,6 +4,7 @@ import { PrismaService } from "src/modules/prisma/prisma.service";
 import { PaginationHelper } from "src/shared/helpers/features/pagination";
 import responseFormatter from "src/shared/helpers/response";
 import { GetInterviewSessionsDto } from "./dto/get-interview-sessions.dto";
+import { GetInterviewStatsDto } from "./dto/get-interview-stats.dto";
 
 @Injectable()
 export class AgencyInterviewService {
@@ -13,7 +14,7 @@ export class AgencyInterviewService {
     ) { }
 
     async getInterviewSessions(options: GetInterviewSessionsDto, userId: number) {
-        const { sort_by, sort_order, search, agency_id } = options;
+        const { sort_by, sort_order, search, agency_id, status, date } = options;
         const sortBy = sort_by ?? "created_at";
         const sortOrder = sort_order ?? "desc";
         const orderBy: Prisma.InterviewSessionOrderByWithRelationInput =
@@ -63,8 +64,15 @@ export class AgencyInterviewService {
                     },
                 });
             }
+            if (date) {
+                const start = new Date(date);
+                start.setUTCHours(0, 0, 0, 0);
+                const end = new Date(start);
+                end.setUTCDate(end.getUTCDate() + 1);
+                filters.push({ created_at: { gte: start, lt: end } });
+            }
             return {
-                status: { in: statuses },
+                ...(statuses.length ? { status: { in: statuses } } : {}),
                 ...(filters.length ? { AND: filters } : {}),
             };
         };
@@ -135,11 +143,15 @@ export class AgencyInterviewService {
             );
         };
 
-        const statuses = [
+        const defaultStatuses = [
             InterviewSessionStatus.postponed,
             InterviewSessionStatus.cancelled,
             InterviewSessionStatus.completed,
+            InterviewSessionStatus.active,
+            InterviewSessionStatus.inactive,
         ];
+
+        const statuses = status ? [status] : defaultStatuses;
 
         try {
             return await fetchWithStatuses(statuses);
@@ -149,13 +161,88 @@ export class AgencyInterviewService {
                 typeof error.message === "string" &&
                 error.message.toLowerCase().includes("enum");
             if (isEnumError && statuses.includes(InterviewSessionStatus.postponed)) {
-                return await fetchWithStatuses([
-                    InterviewSessionStatus.cancelled,
-                    InterviewSessionStatus.completed,
-                ]);
+                return await fetchWithStatuses(
+                    statuses.filter(s => s !== InterviewSessionStatus.postponed)
+                );
             }
             throw error;
         }
+    }
+
+    async getInterviewStatistics(options: GetInterviewStatsDto, userId: number) {
+        const { agency_id } = options;
+        const scopedAgencyId = Number.isFinite(Number(agency_id))
+            ? Number(agency_id)
+            : null;
+
+        const baseWhere: Prisma.InterviewSessionWhereInput = scopedAgencyId
+            ? { agency_id: scopedAgencyId }
+            : {
+                agency: {
+                    account: {
+                        is: { id: userId },
+                    },
+                },
+            };
+
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        const dayOfWeek = startOfDay.getDay();
+        const diffToMonday = startOfDay.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+        const startOfWeek = new Date(startOfDay);
+        startOfWeek.setDate(diffToMonday);
+
+        const [
+            totalScheduled,
+            interviewsToday,
+            interviewsThisWeek,
+            completedInterviews,
+            cancelledInterviews
+        ] = await Promise.all([
+            this.prisma.interviewSession.count({ where: baseWhere }),
+            this.prisma.interviewSession.count({
+                where: {
+                    ...baseWhere,
+                    created_at: {
+                        gte: startOfDay
+                    }
+                }
+            }),
+            this.prisma.interviewSession.count({
+                where: {
+                    ...baseWhere,
+                    created_at: {
+                        gte: startOfWeek
+                    }
+                }
+            }),
+            this.prisma.interviewSession.count({
+                where: {
+                    ...baseWhere,
+                    status: InterviewSessionStatus.completed
+                }
+            }),
+            this.prisma.interviewSession.count({
+                where: {
+                    ...baseWhere,
+                    status: InterviewSessionStatus.cancelled
+                }
+            })
+        ]);
+
+        return responseFormatter(
+            {
+                total_scheduled: totalScheduled,
+                interviews_today: interviewsToday,
+                interviews_this_week: interviewsThisWeek,
+                completed_interviews: completedInterviews,
+                cancelled_interviews: cancelledInterviews
+            },
+            null,
+            "Interview statistics retrieved.",
+            200
+        );
     }
 
     async getInterviewSessionDetails(sessionId: number, userId: number) {

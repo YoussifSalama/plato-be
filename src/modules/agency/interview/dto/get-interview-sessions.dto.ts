@@ -1,8 +1,15 @@
 import { ApiProperty } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
-import { IsEnum, IsNumber, IsOptional, IsString } from "class-validator";
+import { IsDateString, IsEnum, IsNumber, IsOptional, IsString } from "class-validator";
 import { paginationDto } from "src/shared/dto/pagination.dto";
-import { SortOrder } from "src/modules/agency/job/dto/get-jobs.dto";
+import { InterviewSessionStatus } from "@generated/prisma";
+
+export { InterviewSessionStatus };
+
+export enum SortOrder {
+    asc = "asc",
+    desc = "desc",
+}
 
 export enum InterviewSessionSortByEnum {
     created_at = "created_at",
@@ -29,5 +36,21 @@ export class GetInterviewSessionsDto extends paginationDto {
     @IsString()
     @IsOptional()
     search?: string;
-}
 
+    @ApiProperty({
+        description: "Filter by interview session status",
+        enum: InterviewSessionStatus,
+        example: InterviewSessionStatus.active,
+    })
+    @IsEnum(InterviewSessionStatus)
+    @IsOptional()
+    status?: InterviewSessionStatus;
+
+    @ApiProperty({
+        description: "Filter sessions by date (YYYY-MM-DD). Returns all sessions created on this day.",
+        example: "2026-02-24",
+    })
+    @IsDateString()
+    @IsOptional()
+    date?: string;
+}

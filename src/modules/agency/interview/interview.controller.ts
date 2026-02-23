@@ -3,11 +3,27 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { JwtAuthGuard } from "src/shared/guards/jwt-auth.guard";
 import { AgencyInterviewService } from "./interview.service";
 import { GetInterviewSessionsDto } from "./dto/get-interview-sessions.dto";
+import { GetInterviewStatsDto } from "./dto/get-interview-stats.dto";
 
 @ApiTags("Agency Interview")
 @Controller("interview")
 export class AgencyInterviewController {
     constructor(private readonly interviewService: AgencyInterviewService) { }
+
+    @Get("statistics")
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth("access-token")
+    @ApiOperation({ summary: "Get agency interview statistics" })
+    async getInterviewStatistics(
+        @Query() options: GetInterviewStatsDto,
+        @Req() req: { user?: { id: number } }
+    ) {
+        const userId = req.user?.id;
+        if (!userId) {
+            throw new BadRequestException("Invalid user");
+        }
+        return this.interviewService.getInterviewStatistics(options, userId);
+    }
 
     @Get("sessions")
     @UseGuards(JwtAuthGuard)
