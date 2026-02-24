@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags, ApiOkResponse } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { JwtAuthGuard } from 'src/shared/guards/jwt-auth.guard';
 import { AccessTokenPayload } from 'src/shared/types/services/jwt.types';
@@ -14,6 +14,7 @@ import { ResendVerificationDto } from './dto/resend-verification.dto';
 import { SignupDto } from './dto/signup.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { UpdateAgencyDto } from './dto/update-agency.dto';
+import { DashboardSummaryResponseDto } from './dto/dashboard-response.dto';
 import { VerifyAccountDto } from './dto/verify-account.dto';
 import { VerifyPasswordResetOtpDto } from './dto/verify-password-reset-otp.dto';
 import invalidTokenTemplate from 'src/shared/templates/agency/InvalidToken.template';
@@ -127,6 +128,7 @@ export class AgencyController {
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
     @ApiOperation({ summary: "Get agency dashboard analytics" })
+    @ApiOkResponse({ type: DashboardSummaryResponseDto })
     async getDashboard(@Req() req: { user: AccessTokenPayload }) {
         return this.agencyService.getAgencyDashboard(req.user.id);
     }

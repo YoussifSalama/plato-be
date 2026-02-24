@@ -493,99 +493,268 @@ export class AgencyService {
             throw new BadRequestException("Agency not found.");
         }
 
+        const now = new Date();
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(now.getDate() - 30);
+        const sixtyDaysAgo = new Date();
+        sixtyDaysAgo.setDate(now.getDate() - 60);
+
+        const currentDay = now.getDay() || 7;
+        const currentWeekMonday = new Date(now);
+        currentWeekMonday.setDate(now.getDate() - currentDay + 1);
+        currentWeekMonday.setHours(0, 0, 0, 0);
+
+        const sixMonthsAgoStart = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+
+        // Execute all queries concurrently
         const [
-            totalJobs,
-            activeJobs,
-            totalResumes,
-            analyzedResumes,
-            invitations,
-            autoInvited,
-            autoDenied,
-            autoShortlisted,
+            activeJobsCount,
+            totalCandidatesCount,
+            upcomingInterviewsCount,
+            unreadMessagesCount,
+
+            // Overview: Current 30 Days
+            currentJobsCount,
+            currentApplicantsCount,
+            currentInterviewsCount,
+            currentResumesCount,
+            currentShortlistedCount,
+
+            // Overview: Previous 30 Days
+            prevJobsCount,
+            prevApplicantsCount,
+            prevInterviewsCount,
+            prevResumesCount,
+            prevShortlistedCount,
+
+            // Weekly Activity base queries
+            weeklyApplications,
+            weeklyInterviews,
+
+            // Application Status (Interview Session Statuses)
+            interviewStatusDist,
+
+            // Department / Jobs
+            allAgencyJobs,
+
+            // Monthly growth
+            sixMonthsApplications,
+
+            // Recent Activity basis
+            recentApplications,
+            recentInterviews,
+            recentInboxes,
         ] = await Promise.all([
-            this.prisma.job.count({ where: { agency_id: agencyId } }),
+            // 1. Top Metrics
             this.prisma.job.count({ where: { agency_id: agencyId, is_active: true } }),
             this.prisma.resume.count({ where: { job: { agency_id: agencyId } } }),
-            this.prisma.resumeAnalysis.count({ where: { job: { agency_id: agencyId } } }),
-            this.prisma.invitation.count({ where: { from_id: agencyId } }),
-            this.prisma.resume.count({
-                where: { job: { agency_id: agencyId }, auto_invited: true },
-            }),
-            this.prisma.resume.count({
-                where: { job: { agency_id: agencyId }, auto_denied: true },
-            }),
-            this.prisma.resume.count({
-                where: { job: { agency_id: agencyId }, auto_shortlisted: true },
-            }),
-        ]);
+            this.prisma.interviewSession.count({ where: { agency_id: agencyId, status: 'active' } }),
+            this.prisma.inbox.count({ where: { agency_id: agencyId, status: 'unread' } }),
 
-        const endDate = new Date();
-        endDate.setHours(23, 59, 59, 999);
-        const startDate = new Date(endDate);
-        startDate.setDate(startDate.getDate() - 13);
-        startDate.setHours(0, 0, 0, 0);
+            // 2. Overview Current 30 days
+            this.prisma.job.count({ where: { agency_id: agencyId, created_at: { gte: thirtyDaysAgo } } }),
+            this.prisma.jobApplication.count({ where: { job: { agency_id: agencyId }, created_at: { gte: thirtyDaysAgo } } }),
+            this.prisma.interviewSession.count({ where: { agency_id: agencyId, created_at: { gte: thirtyDaysAgo } } }),
+            this.prisma.resume.count({ where: { job: { agency_id: agencyId }, created_at: { gte: thirtyDaysAgo } } }),
+            this.prisma.resume.count({ where: { job: { agency_id: agencyId }, auto_shortlisted: true, created_at: { gte: thirtyDaysAgo } } }),
 
-        const [analysisRows, invitationRows] = await Promise.all([
-            this.prisma.resumeAnalysis.findMany({
-                where: {
-                    job: { agency_id: agencyId },
-                    createdAt: { gte: startDate },
-                },
-                select: { createdAt: true },
-            }),
-            this.prisma.invitation.findMany({
-                where: {
-                    from_id: agencyId,
-                    created_at: { gte: startDate },
-                },
+            // Overview Previous 30 days
+            this.prisma.job.count({ where: { agency_id: agencyId, created_at: { gte: sixtyDaysAgo, lt: thirtyDaysAgo } } }),
+            this.prisma.jobApplication.count({ where: { job: { agency_id: agencyId }, created_at: { gte: sixtyDaysAgo, lt: thirtyDaysAgo } } }),
+            this.prisma.interviewSession.count({ where: { agency_id: agencyId, created_at: { gte: sixtyDaysAgo, lt: thirtyDaysAgo } } }),
+            this.prisma.resume.count({ where: { job: { agency_id: agencyId }, created_at: { gte: sixtyDaysAgo, lt: thirtyDaysAgo } } }),
+            this.prisma.resume.count({ where: { job: { agency_id: agencyId }, auto_shortlisted: true, created_at: { gte: sixtyDaysAgo, lt: thirtyDaysAgo } } }),
+
+            // 3. Weekly Activity
+            this.prisma.jobApplication.findMany({
+                where: { job: { agency_id: agencyId }, created_at: { gte: currentWeekMonday } },
                 select: { created_at: true },
             }),
+            this.prisma.interviewSession.findMany({
+                where: { agency_id: agencyId, created_at: { gte: currentWeekMonday } },
+                select: { created_at: true },
+            }),
+
+            // 4. Interview Distribution
+            this.prisma.interviewSession.groupBy({
+                by: ['status'],
+                where: { agency_id: agencyId },
+                _count: { id: true },
+            }),
+
+            // 5. Department Hiring Progress (Jobs with metrics)
+            this.prisma.job.findMany({
+                where: { agency_id: agencyId },
+                select: {
+                    industry: true,
+                    is_active: true,
+                    _count: {
+                        select: { resumes: { where: { auto_shortlisted: true } } }
+                    }
+                }
+            }),
+
+            // 6. Monthly Growth Last 6 months
+            this.prisma.jobApplication.findMany({
+                where: { job: { agency_id: agencyId }, created_at: { gte: sixMonthsAgoStart } },
+                select: { created_at: true },
+            }),
+
+            // 7. Recent Activities
+            this.prisma.jobApplication.findMany({
+                where: { job: { agency_id: agencyId } },
+                orderBy: { created_at: 'desc' },
+                take: 10,
+                include: { candidate: true, job: true },
+            }),
+            this.prisma.interviewSession.findMany({
+                where: { agency_id: agencyId },
+                orderBy: { created_at: 'desc' },
+                take: 10,
+                include: { invitation_token: { include: { invitation: { include: { job: true, to: true } } } } },
+            }),
+            this.prisma.inbox.findMany({
+                where: { agency_id: agencyId },
+                orderBy: { created_at: 'desc' },
+                take: 10,
+            }),
         ]);
 
-        const dateKeys: string[] = [];
-        const byDate: Record<string, { analyzed: number; invited: number }> = {};
-        for (let i = 0; i < 14; i += 1) {
-            const date = new Date(startDate);
-            date.setDate(startDate.getDate() + i);
-            const key = date.toISOString().slice(0, 10);
-            dateKeys.push(key);
-            byDate[key] = { analyzed: 0, invited: 0 };
-        }
+        const calcTrend = (current: number, prev: number) => {
+            if (prev === 0) return current > 0 ? 100 : 0;
+            return ((current - prev) / prev) * 100;
+        };
 
-        for (const row of analysisRows) {
-            const key = row.createdAt.toISOString().slice(0, 10);
-            if (byDate[key]) {
-                byDate[key].analyzed += 1;
-            }
-        }
+        const currentHiringSuccessRate = currentResumesCount > 0 ? (currentShortlistedCount / currentResumesCount) * 100 : 0;
+        const prevHiringSuccessRate = prevResumesCount > 0 ? (prevShortlistedCount / prevResumesCount) * 100 : 0;
 
-        for (const row of invitationRows) {
-            const key = row.created_at.toISOString().slice(0, 10);
-            if (byDate[key]) {
-                byDate[key].invited += 1;
-            }
-        }
+        // Weekly Activity Build
+        const daysOfWeek = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+        const weeklyActivity = daysOfWeek.map(day => ({ day, applications: 0, interviews: 0 }));
 
-        const trend = dateKeys.map((date) => ({
-            date,
-            analyzed: byDate[date]?.analyzed ?? 0,
-            invited: byDate[date]?.invited ?? 0,
+        const getDayIndex = (d: Date) => (d.getDay() || 7) - 1; // 0 for Mon, 6 for Sun
+
+        weeklyApplications.forEach(app => {
+            const idx = getDayIndex(app.created_at);
+            if (weeklyActivity[idx]) weeklyActivity[idx].applications++;
+        });
+        weeklyInterviews.forEach(int => {
+            const idx = getDayIndex(int.created_at);
+            if (weeklyActivity[idx]) weeklyActivity[idx].interviews++;
+        });
+
+        // Application Status Build -> Interview Status Map
+        const applicationStatus = interviewStatusDist.map(st => ({
+            stage: st.status.charAt(0).toUpperCase() + st.status.slice(1),
+            value: st._count.id,
         }));
 
-        return responseFormatter(
-            {
-                totals: {
-                    totalJobs,
-                    activeJobs,
-                    totalResumes,
-                    analyzedResumes,
-                    invitations,
-                    autoInvited,
-                    autoDenied,
-                    autoShortlisted,
-                },
-                trend,
+        // Department Progress Build
+        const deptMap = new Map<string, { currentHired: number, targetHires: number }>();
+        allAgencyJobs.forEach(job => {
+            const ind = job.industry.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            if (!deptMap.has(ind)) deptMap.set(ind, { currentHired: 0, targetHires: 0 });
+            const entry = deptMap.get(ind)!;
+            if (job.is_active) entry.targetHires += 1; // 1 Active job = 1 Target hire for proxy 
+            entry.currentHired += job._count.resumes;
+        });
+        const departmentProgress = Array.from(deptMap.entries()).map(([department, data]) => ({
+            department,
+            currentHired: data.currentHired,
+            targetHires: data.targetHires || 1, // ensure targetHires is at least 1 or fallback
+        }));
+
+        // Monthly Growth Build
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const monthlyGrowthChart: Record<string, number> = {};
+        for (let i = 0; i < 6; i++) {
+            const m = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
+            const key = `${monthNames[m.getMonth()]} ${m.getFullYear().toString().substring(2)}`;
+            monthlyGrowthChart[key] = 0;
+        }
+
+        sixMonthsApplications.forEach(app => {
+            const key = `${monthNames[app.created_at.getMonth()]} ${app.created_at.getFullYear().toString().substring(2)}`;
+            if (monthlyGrowthChart[key] !== undefined) {
+                monthlyGrowthChart[key]++;
+            }
+        });
+
+        const chartData = Object.entries(monthlyGrowthChart).map(([month, applications]) => ({ month, applications }));
+        const currentMonthTotal = chartData[chartData.length - 1]?.applications || 0;
+        const prevMonthTotal = chartData[chartData.length - 2]?.applications || 0;
+
+        // Recent Activities Build
+        const activities: Array<{ id: string, type: 'application' | 'interview' | 'message' | 'job' | 'offer', title: string, description?: string, timestamp: Date }> = [];
+
+        recentApplications.forEach(app => {
+            activities.push({
+                id: `app-${app.id}`,
+                type: 'application',
+                title: `New application for ${app.job?.title || 'Job'}`,
+                description: app.candidate ? `${app.candidate.f_name} ${app.candidate.l_name} applied.` : undefined,
+                timestamp: app.created_at,
+            });
+        });
+
+        recentInterviews.forEach(int => {
+            const inv = int.invitation_token?.invitation;
+            activities.push({
+                id: `int-${int.id}`,
+                type: 'interview',
+                title: `Interview Session Created`,
+                description: inv ? `Session for ${inv.to?.name} (${inv.job?.title})` : 'A new interview session was initiated.',
+                timestamp: int.created_at,
+            });
+        });
+
+        recentInboxes.forEach(inbox => {
+            let type: 'message' | 'application' | 'interview' = 'message';
+            if (inbox.type === 'application') type = 'application';
+            if (inbox.type === 'interview') type = 'interview';
+            activities.push({
+                id: `msg-${inbox.id}`,
+                type,
+                title: inbox.title,
+                description: inbox.description || undefined,
+                timestamp: inbox.created_at,
+            });
+        });
+
+        activities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+        const recentActivities = activities.slice(0, 10).map(a => ({
+            ...a,
+            timestamp: a.timestamp.toISOString()
+        }));
+
+        const responseData = {
+            metrics: {
+                activeJobs: activeJobsCount,
+                totalCandidates: totalCandidatesCount,
+                upcomingInterviews: upcomingInterviewsCount,
+                unreadMessages: unreadMessagesCount,
             },
+            overview: {
+                totalJobs: { value: currentJobsCount, trend: calcTrend(currentJobsCount, prevJobsCount) },
+                newApplicants: { value: currentApplicantsCount, trend: calcTrend(currentApplicantsCount, prevApplicantsCount) },
+                interviewsScheduled: { value: currentInterviewsCount, trend: calcTrend(currentInterviewsCount, prevInterviewsCount) },
+                hiringSuccessRate: { value: currentHiringSuccessRate, trend: Math.round(currentHiringSuccessRate - prevHiringSuccessRate) },
+            },
+            weeklyActivity,
+            applicationStatus,
+            departmentProgress,
+            monthlyGrowth: {
+                chartData,
+                currentMonth: {
+                    total: currentMonthTotal,
+                    trend: calcTrend(currentMonthTotal, prevMonthTotal),
+                },
+            },
+            recentActivities,
+        };
+
+        return responseFormatter(
+            responseData,
             undefined,
             "Agency dashboard loaded.",
             200
