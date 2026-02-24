@@ -19,6 +19,7 @@ import { UpdateAccountDto } from './dto/update-account.dto';
 import { UpdateAgencyDto } from './dto/update-agency.dto';
 import { IJwtProvider } from 'src/shared/types/services/jwt.types';
 import { ConfigService } from '@nestjs/config';
+import { GoogleAuthService } from 'src/shared/services/google-auth.service';
 
 @Injectable()
 export class AgencyService {
@@ -29,7 +30,8 @@ export class AgencyService {
         private readonly bcryptService: BcryptService,
         private readonly sendGridService: SendGridService,
         private readonly jwtService: JwtService,
-        private readonly configService: ConfigService
+        private readonly configService: ConfigService,
+        private readonly googleAuthService: GoogleAuthService,
     ) { }
 
     private getFrontendBaseUrl() {
@@ -124,6 +126,122 @@ export class AgencyService {
             throw new BadRequestException("Wrong credentials.");
         }
 
+        if (!account) {
+            throw new BadRequestException("Account not found.");
+        }
+        const safeAccountId = account.id;
+        const tokenPayload = {
+            id: safeAccountId,
+            provider: IJwtProvider.agency,
+        };
+        const access_token = await this.jwtService.generateAccessToken(tokenPayload);
+        const refresh = await this.jwtService.generateRefreshToken(tokenPayload);
+
+        const tokenClient = (this.prisma as unknown as {
+            token: { create: (args: { data: { refresh_token: string; account_id: number } }) => Promise<unknown> }
+        }).token;
+        await tokenClient.create({
+            data: {
+                refresh_token: refresh.refresh_token,
+                account_id: safeAccountId,
+            }
+        });
+
+        return responseFormatter(
+            {
+                access_token,
+                refresh_token: refresh.refresh_token,
+                refresh_expires_at: refresh.expires_at,
+            },
+            undefined,
+            "Login successful.",
+            200
+        );
+    }
+
+    async loginWithGoogle(idToken: string) {
+        const profile = await this.googleAuthService.verifyAgencyIdToken(idToken);
+        const email = profile.email.toLowerCase();
+
+        // Try match by google_id first
+        const accountWithRelations = await this.prisma.account.findFirst({
+            where: {
+                OR: [
+                    // Narrow casts to allow newly added fields before regenerating Prisma client
+                    { google_id: profile.sub } as any,
+                    { email },
+                ],
+            } as any,
+            include: { teamMember: true, agency: true } as any,
+        });
+
+        let account = accountWithRelations as (typeof accountWithRelations & { teamMember?: unknown }) | null;
+        const isOwner = account && !(account as any).teamMember && Boolean(account.agency_id);
+
+        if (account && !isOwner) {
+            throw new BadRequestException(
+                "Google sign-in is only available for agency owners. Team members must use email and password.",
+            );
+        }
+
+        if (!account) {
+            // Create new owner account + empty agency shell
+            const passwordHash = await this.bcryptService.bcryptHash(
+                randomUUID().replace(/-/g, '').slice(0, 16),
+                'password',
+            );
+
+            const created = await this.prisma.$transaction(async (tx) => {
+                const credential = await tx.credential.create({
+                    data: { password_hash: passwordHash },
+                    select: { id: true },
+                });
+
+                const newAccount = await tx.account.create({
+                    data: {
+                        email,
+                        f_name: profile.givenName || 'Owner',
+                        l_name: profile.familyName || 'User',
+                        user_name: email.split('@')[0],
+                        verified: true,
+                        credential_id: credential.id,
+                        google_id: profile.sub,
+                        auth_provider: 'google',
+                        profile_image_url: profile.picture ?? null,
+                    } as any,
+                });
+
+                const agency = await tx.agency.create({
+                    data: {},
+                    select: { id: true },
+                });
+
+                await tx.account.update({
+                    where: { id: newAccount.id },
+                    data: { agency_id: agency.id },
+                });
+
+                return { ...newAccount, agency_id: agency.id };
+            });
+
+            account = created as any;
+        } else {
+            // Ensure google_id / provider are linked
+            await this.prisma.account.update({
+                where: { id: account.id },
+                data: {
+                    google_id: (account as any).google_id ?? profile.sub,
+                    auth_provider: (account as any).auth_provider ?? 'google',
+                    profile_image_url: (account as any).profile_image_url ?? profile.picture ?? null,
+                    verified: true,
+                } as any,
+            });
+        }
+
+        if (!account) {
+            throw new BadRequestException("Account not found.");
+        }
+
         const tokenPayload = {
             id: account.id,
             provider: IJwtProvider.agency,
@@ -149,7 +267,7 @@ export class AgencyService {
             },
             undefined,
             "Login successful.",
-            200
+            200,
         );
     }
 
@@ -162,23 +280,19 @@ export class AgencyService {
                 l_name: true,
                 user_name: true,
                 agency_id: true,
-                teamMember: {
-                    select: {
-                        team: {
-                            select: {
-                                agency: { select: { id: true } }
-                            }
-                        }
-                    }
-                }
+                teamMember: true,
             },
         });
+
         if (!account) {
             throw new BadRequestException("Account not found.");
         }
+
         const name = `${account.f_name} ${account.l_name}`.trim();
-        const agency_id = account.teamMember?.team?.agency?.id ?? (account.agency_id ?? null);
-        const is_member = Boolean(account.teamMember);
+        const agency_id = account.agency_id ?? null;
+
+        // Check if the account has a team member relation
+        const is_member = !!account.teamMember;
 
         return responseFormatter(
             {

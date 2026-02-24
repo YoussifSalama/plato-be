@@ -24,6 +24,10 @@ export interface IEnvParams {
     fromEmail: string;
     fromName: string;
   };
+  google: {
+    agencyClientId: string;
+    candidateClientId: string;
+  };
   twilio: {
     accountSid: string;
     authToken: string;

@@ -19,6 +19,7 @@ import { SpeechModule } from "./modules/speech/speech.module";
 import { ProfileModule } from "./modules/candidate/profile/profile.module";
 import { TeamModule } from './modules/agency/team/team.module';
 import { SharedModule } from "./shared/shared.module";
+import { AiCallModule } from "./queues/agency/ai-call/ai-call.module";
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { SharedModule } from "./shared/shared.module";
     }),
     ResumeQueueModule,
     ResumeBatchesModule,
+    AiCallModule,
     ResumeModule,
     AgencyModule,
     JobModule,

@@ -10,6 +10,7 @@ import { InvitationService } from "src/modules/agency/invitation/invitation.serv
 import { InboxService } from "src/modules/agency/inbox/inbox.service";
 import { ensureUploadsDir } from "src/shared/helpers/storage/uploads-path";
 import { OpenAiService } from "src/shared/services/openai.service";
+import { AiCallProducer } from "../ai-call/ai-call.producer";
 
 const batchOutputFolder = ensureUploadsDir("resumes_batches_output");
 
@@ -23,11 +24,17 @@ type JobThresholds = {
 
 type StructuredContact = {
     email?: string | null;
+    phone?: string | null;
+    Phone?: string | null;
+    mobile?: string | null;
+    Mobile?: string | null;
 };
 
 type StructuredData = {
     name?: string | null;
     contact?: StructuredContact | null;
+    phone?: string | null;
+    Phone?: string | null;
 };
 
 @Processor("resume_batches_pull_queue")
@@ -42,6 +49,7 @@ export class ResumeBatchesWorker extends WorkerHost {
         private readonly invitationService: InvitationService,
         private readonly inboxService: InboxService,
         private readonly openaiService: OpenAiService,
+        private readonly aiCallProducer: AiCallProducer,
     ) {
         super();
         this.logger.log("ResumeBatchesWorker initialized");
@@ -388,6 +396,62 @@ export class ResumeBatchesWorker extends WorkerHost {
             where: { id: resume.id },
             data: { auto_invited: true },
         });
+
+        // Schedule automatic AI voice call reminder (2 days after auto-invite) if phone is available
+        const phone =
+            structuredData?.contact?.phone ??
+            structuredData?.contact?.Phone ??
+            structuredData?.phone ??
+            structuredData?.Phone ??
+            null;
+
+        if (!phone) {
+            this.logger.log(
+                `Skipping AI call scheduling for resume ${resume.id}: no phone number in structured data.`,
+            );
+            return;
+        }
+
+        try {
+            const job = await this.prisma.job.findUnique({
+                where: { id: resume.job_id },
+                select: {
+                    title: true,
+                    agency: {
+                        select: {
+                            company_name: true,
+                        },
+                    },
+                },
+            });
+
+            const jobTitle = job?.title ?? null;
+            const companyName = job?.agency?.company_name ?? null;
+
+            const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
+
+            await this.aiCallProducer.scheduleInterviewReminderCall(
+                {
+                    resumeId: resume.id,
+                    jobId: resume.job_id,
+                    agencyId: thresholds.agencyId,
+                    toPhoneNumber: phone,
+                    candidateName: name ?? null,
+                    jobTitle,
+                    companyName,
+                },
+                TWO_DAYS_MS,
+            );
+
+            this.logger.log(
+                `Scheduled AI voice call reminder for resume ${resume.id}, job ${resume.job_id}, phone ${phone}`,
+            );
+        } catch (error) {
+            this.logger.error(
+                `Failed to schedule AI voice call reminder for resume ${resume.id}`,
+                error instanceof Error ? error.stack : undefined,
+            );
+        }
     }
 
     /** Process batch outputs: save structured data and AI analysis */

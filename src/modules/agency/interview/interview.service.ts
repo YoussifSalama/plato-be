@@ -21,31 +21,37 @@ export class AgencyInterviewService {
             sortBy === "expires_at"
                 ? { invitation_token: { expires_at: sortOrder } }
                 : { [sortBy]: sortOrder };
-        const scopedAgencyId = Number.isFinite(Number(agency_id))
-            ? Number(agency_id)
-            : null;
 
         const buildWhere = (
             statuses: InterviewSessionStatus[]
         ): Prisma.InterviewSessionWhereInput => {
             const filters: Prisma.InterviewSessionWhereInput[] = [];
-            if (scopedAgencyId) {
-                filters.push({ agency_id: scopedAgencyId });
-            } else {
-                filters.push({
-                    invitation_token: {
-                        is: {
-                            invitation: {
-                                from: {
-                                    account: {
-                                        is: { id: userId },
+            filters.push({
+                agency: {
+                    OR: [
+                        // Agency owner
+                        {
+                            account: {
+                                is: { id: userId },
+                            },
+                        },
+                        // Team member linked to this agency
+                        {
+                            team: {
+                                is: {
+                                    members: {
+                                        some: {
+                                            account: {
+                                                is: { id: userId },
+                                            },
+                                        },
                                     },
                                 },
                             },
                         },
-                    },
-                });
-            }
+                    ],
+                },
+            });
             if (search) {
                 filters.push({
                     invitation_token: {

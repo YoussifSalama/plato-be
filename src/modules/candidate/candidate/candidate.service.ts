@@ -7,6 +7,7 @@ import { JwtService } from "src/shared/services/jwt.services";
 import responseFormatter from "src/shared/helpers/response";
 import { IJwtProvider } from "src/shared/types/services/jwt.types";
 import { SendGridService } from "src/shared/services/sendgrid.services";
+import { GoogleAuthService } from "src/shared/services/google-auth.service";
 import signupTemplate from "src/shared/templates/agency/Signup.template";
 import resendVerificationTemplate from "src/shared/templates/agency/ResendVerification.template";
 import resetPasswordOtpTemplate from "src/shared/templates/agency/ResetPasswordOtp.template";
@@ -38,6 +39,7 @@ export class CandidateService {
         private readonly bcryptService: BcryptService,
         private readonly jwtService: JwtService,
         private readonly sendGridService: SendGridService,
+        private readonly googleAuthService: GoogleAuthService,
         private readonly configService: ConfigService,
     ) { }
 
@@ -439,6 +441,94 @@ export class CandidateService {
             data: {
                 refresh_token: refresh.refresh_token,
                 candidate_id: candidate.id,
+            },
+        });
+
+        return responseFormatter(
+            {
+                access_token,
+                refresh_token: refresh.refresh_token,
+                refresh_expires_at: refresh.expires_at,
+            },
+            undefined,
+            "Login successful.",
+            200,
+        );
+    }
+
+    async loginWithGoogle(idToken: string) {
+        const profile = await this.googleAuthService.verifyCandidateIdToken(idToken);
+        const email = profile.email.toLowerCase();
+
+        // Try match by google_id first
+        let candidate = await this.prisma.candidate.findFirst({
+            where: { google_id: profile.sub },
+            include: { credential: true },
+        });
+
+        if (!candidate) {
+            // Fallback: match by email
+            candidate = await this.prisma.candidate.findFirst({
+                where: { email },
+                include: { credential: true },
+            });
+        }
+
+        if (!candidate) {
+            // Create new candidate account
+            const tempPassword = this.generateTemporaryPassword();
+            const passwordHash = await this.bcryptService.bcryptHash(tempPassword, "password");
+            const verifyToken = randomUUID();
+
+            const created = await this.prisma.$transaction(async (tx) => {
+                const credential = await tx.candidateCredential.create({
+                    data: { password_hash: passwordHash },
+                    select: { id: true },
+                });
+                const candidate = await tx.candidate.create({
+                    data: {
+                        email,
+                        f_name: profile.givenName || 'Candidate',
+                        l_name: profile.familyName || 'User',
+                        verified: true,
+                        invited: false,
+                        credential_id: credential.id,
+                        google_id: profile.sub,
+                        auth_provider: 'google',
+                    },
+                });
+
+                await tx.candidateVerifyToken.create({
+                    data: {
+                        token: verifyToken,
+                        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
+                        candidate_id: candidate.id,
+                    },
+                });
+
+                return candidate;
+            });
+
+            candidate = created as any;
+        } else {
+            // Ensure google_id / provider are linked and mark verified
+            await this.prisma.candidate.update({
+                where: { id: candidate.id },
+                data: {
+                    google_id: candidate.google_id ?? profile.sub,
+                    auth_provider: candidate.auth_provider ?? 'google',
+                    verified: true,
+                },
+            });
+        }
+
+        const tokenPayload = { id: candidate!.id, provider: IJwtProvider.candidate };
+        const access_token = await this.jwtService.generateAccessToken(tokenPayload);
+        const refresh = await this.jwtService.generateRefreshToken(tokenPayload);
+        await this.prisma.candidateToken.create({
+            data: {
+                refresh_token: refresh.refresh_token,
+                candidate_id: candidate!.id,
             },
         });
 

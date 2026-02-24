@@ -15,6 +15,7 @@ import { CandidateVerifyPasswordResetOtpDto } from "./dto/verify-password-reset-
 import { CandidateResetPasswordDto } from "./dto/reset-password.dto";
 import { CandidateVerifyAccountDto } from "./dto/verify-account.dto";
 import { CandidateResendVerificationDto } from "./dto/resend-verification.dto";
+import { CandidateGoogleLoginDto } from "./dto/google-login.dto";
 
 @ApiTags("Auth")
 @Controller("candidate")
@@ -37,6 +38,12 @@ export class CandidateController {
     @ApiOperation({ summary: "Candidate login" })
     async login(@Body() dto: CandidateLoginDto) {
         return this.candidateService.login(dto.email, dto.password);
+    }
+
+    @Post("login/google")
+    @ApiOperation({ summary: "Candidate login with Google ID token" })
+    async loginWithGoogle(@Body() dto: CandidateGoogleLoginDto) {
+        return this.candidateService.loginWithGoogle(dto.idToken);
     }
 
     @Post("signup")

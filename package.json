@@ -51,12 +51,14 @@
     "mammoth": "^1.11.0",
     "multer": "^2.0.2",
     "openai": "^6.16.0",
+    "google-auth-library": "^9.14.3",
     "pdf-parse": "^2.4.5",
     "pg": "^8.16.3",
     "redis": "^4.7.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.3",
+    "twilio": "^5.11.1",
     "uuid4": "^2.0.3"
   },
   "devDependencies": {

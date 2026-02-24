@@ -10,6 +10,7 @@ import { JwtAuthGuard } from 'src/shared/guards/jwt-auth.guard';
 import { DenyResumeDto } from './dto/deny-resume.dto';
 import { ShortlistResumeDto } from './dto/shortlist-resume.dto';
 import { InviteResumeDto } from './dto/invite-resume.dto';
+import { ScheduleAiCallDto } from './dto/schedule-ai-call.dto';
 
 const getResumeFolder = () => {
     return ensureUploadsDir("resumes");
@@ -157,5 +158,20 @@ export class ResumeController {
             throw new BadRequestException('Invalid user');
         }
         return this.resumeService.inviteResume(id, userId, dto);
+    }
+
+    @Post(':id/ai-call')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    async scheduleAiCall(
+        @Req() req: { user?: { id: number } },
+        @Param('id', ParseIntPipe) id: number,
+        @Body() dto: ScheduleAiCallDto,
+    ) {
+        const userId = req.user?.id;
+        if (!userId) {
+            throw new BadRequestException('Invalid user');
+        }
+        return this.resumeService.scheduleAiCall(id, userId, dto);
     }
 }

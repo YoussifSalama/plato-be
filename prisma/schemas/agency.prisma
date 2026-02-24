@@ -7,6 +7,10 @@ model Account {
     user_name String
     verified  Boolean @default(false)
 
+    google_id        String? @unique
+    auth_provider    String?
+    profile_image_url String?
+
     agency_id Int?    @unique
     agency    Agency? @relation(fields: [agency_id], references: [id], onDelete: SetNull)
 

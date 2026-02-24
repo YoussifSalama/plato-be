@@ -17,6 +17,7 @@ import { UpdateAgencyDto } from './dto/update-agency.dto';
 import { DashboardSummaryResponseDto } from './dto/dashboard-response.dto';
 import { VerifyAccountDto } from './dto/verify-account.dto';
 import { VerifyPasswordResetOtpDto } from './dto/verify-password-reset-otp.dto';
+import { AgencyGoogleLoginDto } from './dto/google-login.dto';
 import invalidTokenTemplate from 'src/shared/templates/agency/InvalidToken.template';
 import responseFormatter from 'src/shared/helpers/response';
 
@@ -39,6 +40,13 @@ export class AgencyController {
     @ApiOperation({ summary: "Login and get tokens" })
     async login(@Body() loginDto: LoginDto) {
         return this.agencyService.login(loginDto);
+    }
+
+    @Post('login/google')
+    @HttpCode(200)
+    @ApiOperation({ summary: "Login with Google ID token (agency owner only)" })
+    async loginWithGoogle(@Body() body: AgencyGoogleLoginDto) {
+        return this.agencyService.loginWithGoogle(body.idToken);
     }
 
     @Post('token/refresh')

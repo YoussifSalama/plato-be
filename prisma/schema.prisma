@@ -243,6 +243,10 @@ model Account {
     user_name String
     verified  Boolean @default(false)
 
+    google_id        String? @unique
+    auth_provider    String?
+    profile_image_url String?
+
     agency_id Int?    @unique
     agency    Agency? @relation(fields: [agency_id], references: [id], onDelete: SetNull)
 
@@ -554,7 +558,7 @@ model Inbox{
 }
 
 // --- candidate.prisma ---
-model Candidate{
+model Candidate {
     id Int @id @default(autoincrement())
 
     email String? @unique
@@ -579,6 +583,9 @@ model Candidate{
     otps CandidateOtp[]
     job_matches JobMatch[]
     applications JobApplication[]
+
+    google_id String? @unique
+    auth_provider String?
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt

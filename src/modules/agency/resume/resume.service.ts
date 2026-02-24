@@ -10,6 +10,7 @@ import { DenyResumeDto } from './dto/deny-resume.dto';
 import { ShortlistResumeDto } from './dto/shortlist-resume.dto';
 import { InviteResumeDto } from './dto/invite-resume.dto';
 import { InvitationService } from 'src/modules/agency/invitation/invitation.service';
+import { AiCallProducer } from 'src/queues/agency/ai-call/ai-call.producer';
 
 @Injectable()
 export class ResumeService {
@@ -20,18 +21,42 @@ export class ResumeService {
         private readonly filterHelper: FilterHelper,
         private readonly paginationHelper: PaginationHelper,
         private readonly invitationService: InvitationService,
+        private readonly aiCallProducer: AiCallProducer,
     ) { }
 
     private async getAgencyId(accountId: number) {
         const account = await this.prisma.account.findUnique({
             where: { id: accountId },
-            select: { agency_id: true, teamMember: { select: { team: { select: { agency: { select: { id: true } } } } } } },
+            select: {
+                agency_id: true,
+                teamMember: {
+                    select: {
+                        team: {
+                            select: {
+                                agency: {
+                                    select: { id: true },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
         });
-        const agencyId = account?.teamMember?.team?.agency?.id ?? account?.agency_id;
-        if (!agencyId) {
-            throw new BadRequestException("Agency not found.");
+
+        // Case 1: Agency owner
+        if (account?.agency_id) {
+            return account.agency_id;
         }
-        return agencyId;
+
+        // Case 2: Team member
+        const teamAgencyId =
+            account?.teamMember?.team?.agency?.id ?? null;
+
+        if (teamAgencyId) {
+            return teamAgencyId;
+        }
+
+        throw new BadRequestException("Agency not found.");
     }
 
     private async getResumeForAction(resumeId: number, userId: number) {
@@ -53,6 +78,12 @@ export class ResumeService {
                 job: {
                     select: {
                         agency_id: true,
+                        title: true,
+                        agency: {
+                            select: {
+                                company_name: true,
+                            },
+                        },
                     },
                 },
                 resume_structured: {
@@ -424,5 +455,94 @@ export class ResumeService {
             },
         });
         return responseFormatter(updated, null, "Invitation sent successfully", 200);
+    }
+
+    async scheduleAiCall(resumeId: number, userId: number, dto?: { scheduledAt?: string }) {
+        const resume = await this.getResumeForAction(resumeId, userId);
+
+        if (resume.auto_denied) {
+            throw new BadRequestException("Resume is denied. Remove deny before scheduling a call.");
+        }
+
+        // Require an invitation to exist before scheduling a call
+        const invitation = await this.prisma.invitation.findUnique({
+            where: { to_id: resume.id },
+            select: {
+                id: true,
+                job: {
+                    select: {
+                        id: true,
+                        title: true,
+                        agency: {
+                            select: {
+                                company_name: true,
+                            },
+                        },
+                    },
+                },
+            },
+        });
+
+        if (!invitation) {
+            throw new BadRequestException("Candidate has not been invited yet. Send an invitation first.");
+        }
+
+        const structured = resume.resume_structured?.data as
+            | {
+                name?: string | null;
+                phone?: string | null;
+                Phone?: string | null;
+                contact?: {
+                    email?: string | null;
+                    Email?: string | null;
+                    phone?: string | null;
+                    Phone?: string | null;
+                } | null;
+            }
+            | null
+            | undefined;
+
+        const candidateName = structured?.name ?? resume.name ?? null;
+        const phone =
+            structured?.contact?.phone ??
+            structured?.contact?.Phone ??
+            structured?.phone ??
+            structured?.Phone ??
+            null;
+
+        if (!phone) {
+            throw new BadRequestException("No phone number found for this candidate in the parsed resume.");
+        }
+
+        const jobTitle = invitation.job?.title ?? null;
+        const companyName = invitation.job?.agency?.company_name ?? null;
+
+        let delayMs = 0;
+        if (dto?.scheduledAt) {
+            const scheduledDate = new Date(dto.scheduledAt);
+            if (!Number.isNaN(scheduledDate.getTime())) {
+                delayMs = scheduledDate.getTime() - Date.now();
+            }
+        }
+
+        await this.aiCallProducer.scheduleInterviewReminderCall(
+            {
+                resumeId: resume.id,
+                jobId: invitation.job?.id ?? null,
+                agencyId: resume.job.agency_id,
+                toPhoneNumber: `+20${phone}`,
+                candidateName,
+                jobTitle,
+                companyName,
+            },
+            delayMs,
+        );
+
+        return responseFormatter(
+            { ...resume, auto_invited: true },
+            null,
+            "AI call scheduled successfully",
+            200,
+        );
     }
 }

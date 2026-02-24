@@ -1,4 +1,4 @@
-model Candidate{
+model Candidate {
     id Int @id @default(autoincrement())
 
     email String? @unique
@@ -23,6 +23,9 @@ model Candidate{
     otps CandidateOtp[]
     job_matches JobMatch[]
     applications JobApplication[]
+
+    google_id String? @unique
+    auth_provider String?
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt

@@ -33,6 +33,10 @@ export default registerAs(
             fromEmail: process.env.SENDGRID_FROM_EMAIL ?? '',
             fromName: process.env.SENDGRID_FROM_NAME ?? '',
         },
+        google: {
+            agencyClientId: process.env.GOOGLE_CLIENT_ID_AGENCY ?? '',
+            candidateClientId: process.env.GOOGLE_CLIENT_ID_CANDIDATE ?? '',
+        },
         twilio: {
             accountSid: process.env.TWILIO_ACCOUNT_SID ?? '',
             authToken: process.env.TWILIO_AUTH_TOKEN ?? '',

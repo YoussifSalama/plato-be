@@ -6,6 +6,7 @@ import { PrismaService } from "src/modules/prisma/prisma.service";
 import { InvitationModule } from "src/modules/agency/invitation/invitation.module";
 import { InboxModule } from "src/modules/agency/inbox/inbox.module";
 import { OpenAiService } from "src/shared/services/openai.service";
+import { AiCallModule } from "../ai-call/ai-call.module";
 
 @Module({
     imports: [
@@ -14,8 +15,9 @@ import { OpenAiService } from "src/shared/services/openai.service";
         }),
         InvitationModule,
         InboxModule,
+        AiCallModule,
     ],
-    providers: [ResumeBatchesWorker, ResumeBatchesCronJob, PrismaService,OpenAiService],
+    providers: [ResumeBatchesWorker, ResumeBatchesCronJob, PrismaService, OpenAiService],
     exports: [ResumeBatchesWorker, ResumeBatchesCronJob]
 })
 export class ResumeBatchesModule { }
