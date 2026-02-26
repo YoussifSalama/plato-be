@@ -875,6 +875,47 @@ export class AgencyService {
         );
     }
 
+    async getSubscription(accountId: number) {
+        const account = await this.prisma.account.findUnique({
+            where: { id: accountId },
+            select: { agency_id: true, teamMember: { select: { team: { select: { agency: { select: { id: true } } } } } } },
+        });
+
+        const agencyId = account?.teamMember?.team?.agency?.id ?? (account?.agency_id ?? null);
+        if (!agencyId) {
+            throw new BadRequestException("Agency not found.");
+        }
+
+        const subscription = await (this.prisma as any).agencySubscription.findUnique({
+            where: { agency_id: agencyId },
+            include: { plan: true },
+        });
+
+        if (!subscription) {
+            throw new BadRequestException("Subscription not found.");
+        }
+
+        return responseFormatter(
+            subscription,
+            undefined,
+            "Agency subscription loaded.",
+            200
+        );
+    }
+
+    async getSubscriptionPlans() {
+        const plans = await (this.prisma as any).subscriptionPlan.findMany({
+            orderBy: { id: 'asc' },
+        });
+
+        return responseFormatter(
+            plans,
+            undefined,
+            "Subscription plans loaded.",
+            200
+        );
+    }
+
     async changePassword(accountId: number, changePasswordDto: ChangePasswordDto) {
         const { oldPassword, newPassword } = changePasswordDto;
         const account = await this.prisma.account.findUnique({

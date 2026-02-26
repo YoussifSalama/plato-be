@@ -141,6 +141,22 @@ export class AgencyController {
         return this.agencyService.getAgencyDashboard(req.user.id);
     }
 
+    @Get('subscription/me')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: "Get agency current subscription and plan quotas" })
+    async getMySubscription(@Req() req: { user: AccessTokenPayload }) {
+        return this.agencyService.getSubscription(req.user.id);
+    }
+
+    @Get('subscription/plans')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: "Get all available subscription plans" })
+    async getSubscriptionPlans() {
+        return this.agencyService.getSubscriptionPlans();
+    }
+
     @Get('account/me')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
