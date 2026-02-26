@@ -460,6 +460,7 @@ export class ResumeBatchesWorker extends WorkerHost {
 
         let fallbackJobId: number | null = null;
         let fallbackAgencyId: number | null = null;
+        const agencyQuotaIncrements: Record<number, number> = {};
 
         for (const line of outputs) {
             const customId = line.custom_id;
@@ -477,6 +478,7 @@ export class ResumeBatchesWorker extends WorkerHost {
                     auto_invited: true,
                     auto_shortlisted: true,
                     auto_denied: true,
+                    job: { select: { agency_id: true } }
                 },
             });
             if (!resume) continue;
@@ -484,8 +486,7 @@ export class ResumeBatchesWorker extends WorkerHost {
                 fallbackJobId = resume.job_id;
             }
             if (!fallbackAgencyId) {
-                const thresholds = await this.getJobThresholds(resume.job_id);
-                fallbackAgencyId = thresholds?.agencyId ?? null;
+                fallbackAgencyId = resume.job.agency_id;
             }
 
             const messageContent = response?.choices?.[0]?.message?.content;
@@ -550,6 +551,27 @@ export class ResumeBatchesWorker extends WorkerHost {
                     scoreValue,
                     structuredData as StructuredData | null,
                 );
+
+                const countAgency = resume.job.agency_id;
+                agencyQuotaIncrements[countAgency] = (agencyQuotaIncrements[countAgency] || 0) + 1;
+            }
+        }
+
+        // Apply Quota Increments
+        for (const [agencyId, increment] of Object.entries(agencyQuotaIncrements)) {
+            try {
+                const sub = await this.prisma.agencySubscription.findUnique({
+                    where: { agency_id: Number(agencyId) },
+                    select: { id: true },
+                });
+                if (sub) {
+                    await this.prisma.agencySubscription.update({
+                        where: { id: sub.id },
+                        data: { used_resume_analysis: { increment } },
+                    });
+                }
+            } catch (err) {
+                this.logger.error(`Failed to apply quota for agency ${agencyId}`, err as Error);
             }
         }
 
