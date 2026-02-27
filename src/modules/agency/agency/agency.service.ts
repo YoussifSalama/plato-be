@@ -17,6 +17,7 @@ import { VerifyPasswordResetOtpDto } from './dto/verify-password-reset-otp.dto';
 import { SignupDto } from './dto/signup.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { UpdateAgencyDto } from './dto/update-agency.dto';
+import { UpgradeSubscriptionDto } from './dto/upgrade-subscription.dto';
 import { IJwtProvider } from 'src/shared/types/services/jwt.types';
 import { ConfigService } from '@nestjs/config';
 import { GoogleAuthService } from 'src/shared/services/google-auth.service';
@@ -899,6 +900,49 @@ export class AgencyService {
             subscription,
             undefined,
             "Agency subscription loaded.",
+            200
+        );
+    }
+
+    async upgradeSubscription(accountId: number, dto: UpgradeSubscriptionDto) {
+        const account = await this.prisma.account.findUnique({
+            where: { id: accountId },
+            select: { agency_id: true, teamMember: { select: { team: { select: { agency: { select: { id: true } } } } } } },
+        });
+
+        const agencyId = account?.teamMember?.team?.agency?.id ?? (account?.agency_id ?? null);
+        if (!agencyId) {
+            throw new BadRequestException("Agency not found.");
+        }
+
+        const plan = await (this.prisma as any).subscriptionPlan.findUnique({
+            where: { id: dto.plan_id }
+        });
+
+        if (!plan) {
+            throw new BadRequestException("Plan not found. Please provide a valid plan ID.");
+        }
+
+        const now = new Date();
+        const endDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+        const subscription = await (this.prisma as any).agencySubscription.update({
+            where: { agency_id: agencyId },
+            data: {
+                plan_id: plan.id,
+                used_interview_sessions: 0,
+                used_resume_analysis: 0,
+                used_job_posting: 0,
+                start_date: now,
+                end_date: endDate,
+            },
+            include: { plan: true },
+        });
+
+        return responseFormatter(
+            subscription,
+            undefined,
+            "Successfully upgraded subscription plan. Quotas have been reset limit and plan duration extended by 30 days.",
             200
         );
     }

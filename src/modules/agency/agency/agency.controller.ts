@@ -15,6 +15,7 @@ import { SignupDto } from './dto/signup.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { UpdateAgencyDto } from './dto/update-agency.dto';
 import { DashboardSummaryResponseDto } from './dto/dashboard-response.dto';
+import { UpgradeSubscriptionDto } from './dto/upgrade-subscription.dto';
 import { VerifyAccountDto } from './dto/verify-account.dto';
 import { VerifyPasswordResetOtpDto } from './dto/verify-password-reset-otp.dto';
 import { AgencyGoogleLoginDto } from './dto/google-login.dto';
@@ -147,6 +148,14 @@ export class AgencyController {
     @ApiOperation({ summary: "Get agency current subscription and plan quotas" })
     async getMySubscription(@Req() req: { user: AccessTokenPayload }) {
         return this.agencyService.getSubscription(req.user.id);
+    }
+
+    @Post('subscription/upgrade')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: "Resubscribe or upgrade to a plan, resetting the quotas and extending the billing period" })
+    async upgradeSubscription(@Req() req: { user: AccessTokenPayload }, @Body() body: UpgradeSubscriptionDto) {
+        return this.agencyService.upgradeSubscription(req.user.id, body);
     }
 
     @Get('subscription/plans')

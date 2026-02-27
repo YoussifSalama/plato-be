@@ -407,6 +407,8 @@ model SubscriptionPlan {
   id   Int      @id @default(autoincrement())
   name PlanName @unique
 
+  price Int @default(0)
+
   interview_sessions_quota Int
   resume_analysis_quota    Int
   job_posting_quota        Int
