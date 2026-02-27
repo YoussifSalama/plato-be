@@ -170,7 +170,7 @@ export class InterviewService {
 
     private async requestQuestions(prompt: string): Promise<string[]> {
         const completion = await this.getOpenAiClient().chat.completions.create({
-            model: "gpt-4o",
+            model: "gpt-4o-mini",
             messages: [{ role: "system", content: prompt }],
         });
         const content = completion.choices?.[0]?.message?.content ?? "";
@@ -256,7 +256,7 @@ export class InterviewService {
 
         const completion = await this.withTimeout(
             this.getOpenAiClient().chat.completions.create({
-                model: "gpt-4o",
+                model: "gpt-4o-mini",
                 messages: [{ role: "system", content: prompt }],
             }),
             5000,
