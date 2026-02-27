@@ -53,19 +53,43 @@ export class JobService {
     async createJob(accountId: number, dto: CreateJobDto) {
         this.validateSalaryRange(dto.salary_from, dto.salary_to);
         const agencyId = await this.getAgencyId(accountId);
-        const jobClient = (this.prisma as unknown as {
-            job: { create: (args: { data: Record<string, unknown> }) => Promise<unknown> }
-        }).job;
-        return jobClient.create({
-            data: {
-                ...dto,
-                agency_id: agencyId,
-                updated_by: accountId,
-                soft_skills: dto.soft_skills ?? [],
-                technical_skills: dto.technical_skills ?? [],
-                languages: dto.languages ?? [],
-                certifications: dto.certifications ?? "",
-            },
+
+        return this.prisma.$transaction(async (tx) => {
+            const subscription = await (tx as any).agencySubscription.findUnique({
+                where: { agency_id: agencyId },
+                include: { plan: true },
+            });
+
+            if (!subscription) {
+                throw new BadRequestException("Agency does not have an active subscription.");
+            }
+
+            if (subscription.plan.name !== 'enterprise' && subscription.used_job_posting >= subscription.plan.job_posting_quota) {
+                throw new BadRequestException("Job posting quota exceeded for your current plan.");
+            }
+
+            const job = await (tx as any).job.create({
+                data: {
+                    ...dto,
+                    agency_id: agencyId,
+                    updated_by: accountId,
+                    soft_skills: dto.soft_skills ?? [],
+                    technical_skills: dto.technical_skills ?? [],
+                    languages: dto.languages ?? [],
+                    certifications: dto.certifications ?? "",
+                },
+            });
+
+            await (tx as any).agencySubscription.update({
+                where: { id: subscription.id },
+                data: {
+                    used_job_posting: {
+                        increment: 1
+                    }
+                }
+            });
+
+            return job;
         });
     }
 
