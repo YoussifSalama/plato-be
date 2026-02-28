@@ -8,6 +8,7 @@ import { AppendQaLogDto } from "./dto/append-qa-log.dto";
 import { StartInterviewDto } from "./dto/start-interview.dto";
 import { CompleteInterviewDto } from "./dto/complete-interview.dto";
 import { PostponeInterviewDto } from "./dto/postpone-interview.dto";
+import { RealtimeMetricsDto } from "./dto/realtime-metrics.dto";
 
 @ApiTags("Interview")
 @Controller("interview")
@@ -164,7 +165,9 @@ export class InterviewController {
         this.logger.log(`postpone.start session=${body.interview_session_id}`);
         try {
             const result = await this.interviewService.postponeInterviewSession(
-                body.interview_session_id
+                body.interview_session_id,
+                body.mode,
+                body.scheduled_for
             );
             this.logger.log(
                 `postpone.done session=${body.interview_session_id} ms=${Date.now() - startedAt}`
@@ -229,5 +232,25 @@ export class InterviewController {
             );
             throw error;
         }
+    }
+
+    @Post("realtime/metrics")
+    @ApiOperation({ summary: "Collect realtime interview quality metrics" })
+    async collectRealtimeMetrics(@Body() body: RealtimeMetricsDto) {
+        this.logger.log(
+            [
+                "realtime.metrics",
+                `session=${body.interview_session_id ?? "none"}`,
+                `lang=${body.language}`,
+                `turns_ai=${body.ai_turns}`,
+                `turns_candidate=${body.candidate_turns}`,
+                `silence_chains=${body.silence_chains_started}`,
+                `empty_transcripts=${body.empty_candidate_transcripts}`,
+                `repair_prompts=${body.transcript_repair_prompts_sent}`,
+                `failures=${body.connection_failures}`,
+                `reason=${body.reason}`,
+            ].join(" ")
+        );
+        return { ok: true };
     }
 }

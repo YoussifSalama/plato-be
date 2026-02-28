@@ -660,7 +660,13 @@ export class AgencyService {
             recentInboxes,
         ] = await Promise.all([
             // 1. Top Metrics
-            this.prisma.job.count({ where: { agency_id: agencyId, is_active: true } }),
+            this.prisma.job.count({
+                where: {
+                    agency_id: agencyId,
+                    is_active: true,
+                    auto_deactivate_at: { gt: now },
+                },
+            }),
             this.prisma.resume.count({ where: { job: { agency_id: agencyId } } }),
             this.prisma.interviewSession.count({ where: { agency_id: agencyId, status: 'active' } }),
             this.prisma.inbox.count({ where: { agency_id: agencyId, status: 'unread' } }),
@@ -702,6 +708,7 @@ export class AgencyService {
                 select: {
                     industry: true,
                     is_active: true,
+                    auto_deactivate_at: true,
                     _count: {
                         select: { resumes: { where: { auto_shortlisted: true } } }
                     }
@@ -769,7 +776,7 @@ export class AgencyService {
             const ind = job.industry.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
             if (!deptMap.has(ind)) deptMap.set(ind, { currentHired: 0, targetHires: 0 });
             const entry = deptMap.get(ind)!;
-            if (job.is_active) entry.targetHires += 1; // 1 Active job = 1 Target hire for proxy 
+            if (job.is_active && job.auto_deactivate_at > now) entry.targetHires += 1; // 1 effectively active job = 1 target hire proxy
             entry.currentHired += job._count.resumes;
         });
         const departmentProgress = Array.from(deptMap.entries()).map(([department, data]) => ({

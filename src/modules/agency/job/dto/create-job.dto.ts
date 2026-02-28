@@ -1,5 +1,18 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsArray, IsBoolean, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from "class-validator";
+import { Transform } from "class-transformer";
+import { IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from "class-validator";
+
+const normalizeLanguageValues = (values: unknown): ("ar" | "en")[] | unknown => {
+    if (!Array.isArray(values)) return values;
+    return values
+        .map((value) => {
+            const normalized = String(value).trim().toLowerCase();
+            if (normalized === "ar" || normalized === "arabic") return "ar";
+            if (normalized === "en" || normalized === "english") return "en";
+            return normalized;
+        })
+        .filter(Boolean) as ("ar" | "en")[];
+};
 
 export class CreateJobDto {
     @ApiProperty({ example: "Business Development Manager" })
@@ -60,6 +73,10 @@ export class CreateJobDto {
     @IsOptional()
     @IsBoolean()
     is_active?: boolean;
+
+    @ApiProperty({ example: "2026-03-31T23:59:00.000Z" })
+    @IsDateString()
+    auto_deactivate_at: string;
 
     @ApiProperty({ example: "usd" })
     @IsString()
@@ -139,6 +156,8 @@ export class CreateJobDto {
     @ApiPropertyOptional({ isArray: true, example: ["arabic", "english"] })
     @IsOptional()
     @IsArray()
-    languages?: unknown[];
+    @Transform(({ value }) => normalizeLanguageValues(value))
+    @IsIn(["ar", "en"], { each: true })
+    languages?: ("ar" | "en")[];
 }
 

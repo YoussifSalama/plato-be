@@ -9,10 +9,12 @@ import { InterviewGateway } from 'src/gateways/candidate/interview/interview.gat
 import { PaginationHelper } from 'src/shared/helpers/features/pagination';
 import { InboxModule } from 'src/modules/agency/inbox/inbox.module';
 import { OpenAiService } from 'src/shared/services/openai.service';
+import { EmailModule } from 'src/shared/services/email.module';
+import { RandomUuidService } from 'src/shared/services/randomuuid.services';
 
 @Module({
-  imports: [PrismaModule, SpeechModule, InboxModule],
+  imports: [PrismaModule, SpeechModule, InboxModule, EmailModule],
   controllers: [InterviewController],
-  providers: [InterviewService, InterviewGateway, JwtService, CandidateJwtAuthGuard, PaginationHelper,OpenAiService],
+  providers: [InterviewService, InterviewGateway, JwtService, CandidateJwtAuthGuard, PaginationHelper, OpenAiService, RandomUuidService],
 })
 export class InterviewModule { }

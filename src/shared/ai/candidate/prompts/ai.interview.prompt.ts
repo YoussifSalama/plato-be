@@ -5,6 +5,13 @@ type JobWithAiPrompt = Job & {
   jobAiPrompt?: {
     prompt?: string | null;
   } | null;
+  interview_session_history?: {
+    total_sessions?: number;
+    completed_sessions?: number;
+    postponed_sessions?: number;
+    has_postponed_before?: boolean;
+    remaining_postpones?: number;
+  } | null;
 };
 
 export default function AiInterviewPrompt(data: {
@@ -31,6 +38,7 @@ export default function AiInterviewPrompt(data: {
       certifications: job.certifications,
       requirements: job.requirements,
       jobAiPrompt: job?.jobAiPrompt?.prompt ?? "",
+      interview_session_history: job?.interview_session_history ?? null,
     },
     resumeStructerd: { data: resumeStructerd.data },
     resumeAnalysis: {

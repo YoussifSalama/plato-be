@@ -408,6 +408,7 @@ model Job{
     auto_shortlisted_threshold Int?
     auto_denied_threshold Int?
     is_active Boolean @default(true)
+    auto_deactivate_at DateTime
 
     salary_currency JobSalaryCurrency
     salary_from Decimal

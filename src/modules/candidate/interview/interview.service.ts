@@ -22,6 +22,9 @@ import { GetInterviewSessionsDto } from './dto/get-interview-sessions.dto';
 import { PaginationHelper } from 'src/shared/helpers/features/pagination';
 import { InboxService } from 'src/modules/agency/inbox/inbox.service';
 import { OpenAiKeyRotator } from 'src/shared/helpers/ai/openai-key-rotator';
+import invitationTemplate from 'src/shared/templates/invitation/Invitation.template';
+import { SendGridService } from 'src/shared/services/sendgrid.services';
+import { RandomUuidService } from 'src/shared/services/randomuuid.services';
 
 @Injectable()
 export class InterviewService {
@@ -32,7 +35,9 @@ export class InterviewService {
         private readonly speechService: SpeechService,
         private readonly paginationHelper: PaginationHelper,
         private readonly inboxService: InboxService,
-        private readonly configService: ConfigService
+        private readonly configService: ConfigService,
+        private readonly sendGridService: SendGridService,
+        private readonly randomUuidService: RandomUuidService
     ) {
         const apiKeys = this.configService.get<string[]>("env.openai.apiKeys") ?? [];
         if (!apiKeys.length) throw new Error("No OpenAI API keys configured.");
@@ -41,6 +46,85 @@ export class InterviewService {
 
     private getOpenAiClient(): OpenAI {
         return new OpenAI({ apiKey: this.keyRotator.next() });
+    }
+
+    private getCandidateFrontendBaseUrl() {
+        const rawUrl = this.configService.get<string>("FRONTEND_URL_CANDIDATE") || "";
+        try {
+            const url = new URL(rawUrl);
+            return url.origin;
+        } catch {
+            return rawUrl.replace(/\/+$/, "");
+        }
+    }
+
+    private extractEmailFromResumeStructured(data: unknown): string | null {
+        if (!data || typeof data !== "object") {
+            return null;
+        }
+        const payload = data as {
+            email?: string | null;
+            Email?: string | null;
+            contact?: { email?: string | null; Email?: string | null } | null;
+        };
+        return payload.contact?.email ?? payload.contact?.Email ?? payload.email ?? payload.Email ?? null;
+    }
+
+    private extractNameFromResumeStructured(data: unknown, fallback?: string | null): string | null {
+        if (!data || typeof data !== "object") {
+            return fallback ?? null;
+        }
+        const payload = data as { name?: string | null };
+        return payload.name ?? fallback ?? null;
+    }
+
+    private async resolveInterviewHistory(candidateId: number | null, jobId: number) {
+        if (!candidateId) {
+            return {
+                total_sessions: 0,
+                completed_sessions: 0,
+                postponed_sessions: 0,
+                has_postponed_before: false,
+                remaining_postpones: 1,
+            };
+        }
+
+        const [totalSessions, completedSessions, postponedSessions] = await this.prisma.$transaction([
+            this.prisma.interviewSession.count({
+                where: {
+                    invitation_token: {
+                        candidate_id: candidateId,
+                        invitation: { job_id: jobId },
+                    },
+                },
+            }),
+            this.prisma.interviewSession.count({
+                where: {
+                    status: InterviewSessionStatus.completed,
+                    invitation_token: {
+                        candidate_id: candidateId,
+                        invitation: { job_id: jobId },
+                    },
+                },
+            }),
+            this.prisma.interviewSession.count({
+                where: {
+                    status: InterviewSessionStatus.postponed,
+                    invitation_token: {
+                        candidate_id: candidateId,
+                        invitation: { job_id: jobId },
+                    },
+                },
+            }),
+        ]);
+
+        return {
+            total_sessions: totalSessions,
+            completed_sessions: completedSessions,
+            postponed_sessions: postponedSessions,
+            has_postponed_before: postponedSessions > 0,
+            remaining_postpones: Math.max(0, 1 - postponedSessions),
+        };
     }
 
     private toJsonSnapshot<T>(value: T): T {
@@ -399,6 +483,7 @@ export class InterviewService {
                 expires_at: true,
                 invitation_id: true,
                 status: true,
+                candidate_id: true,
             },
         });
 
@@ -411,31 +496,47 @@ export class InterviewService {
             include: {
                 from: true,
                 job: true,
-                to: true,
+                to: {
+                    include: {
+                        resume_structured: true,
+                    },
+                },
             },
         });
 
         if (!invitation) {
             throw new BadRequestException("Invitation not found.");
         }
+        const resumeStructuredEmail = this.extractEmailFromResumeStructured(
+            invitation.to?.resume_structured?.data
+        );
+        const candidateByEmail = resumeStructuredEmail
+            ? await this.prisma.candidate.findFirst({
+                where: { email: resumeStructuredEmail },
+                select: { id: true },
+            })
+            : null;
+        const resolvedCandidateId = token.candidate_id ?? candidateByEmail?.id ?? null;
+        const interviewHistory = await this.resolveInterviewHistory(resolvedCandidateId, invitation.job.id);
 
         const availableLanguages = this.resolveInterviewLanguages(invitation.job?.languages);
-        const rawJobLanguages = Array.isArray(invitation.job?.languages) ? invitation.job.languages : [];
-        const resolvedAvailable = availableLanguages.length > 0 ? availableLanguages : [];
+        const resolvedAvailable =
+            availableLanguages.length > 0 ? availableLanguages : [InterviewLanguage.ar];
 
-        if ((resolvedAvailable.length > 1 || rawJobLanguages.length > 1) && !language) {
+        if (resolvedAvailable.length > 1 && !language) {
             return {
                 invitation_token_id: token.id,
-                available_languages: resolvedAvailable.length > 0 ? resolvedAvailable : [InterviewLanguage.ar, InterviewLanguage.en],
+                available_languages: resolvedAvailable,
                 requires_language_choice: true,
-                job_snapshot: this.toJsonSnapshot(invitation.job),
+                job_snapshot: this.toJsonSnapshot({
+                    ...invitation.job,
+                    interview_session_history: interviewHistory,
+                }),
             };
         }
         const requestedLanguage = language === "en" ? InterviewLanguage.en : InterviewLanguage.ar;
         let selectedLanguage: InterviewLanguage;
-        if (resolvedAvailable.length === 0) {
-            selectedLanguage = language ? requestedLanguage : InterviewLanguage.ar;
-        } else if (resolvedAvailable.length === 1) {
+        if (resolvedAvailable.length === 1) {
             selectedLanguage = resolvedAvailable[0];
         } else {
             if (!resolvedAvailable.includes(requestedLanguage)) {
@@ -443,7 +544,10 @@ export class InterviewService {
                     invitation_token_id: token.id,
                     available_languages: resolvedAvailable,
                     requires_language_choice: true,
-                    job_snapshot: this.toJsonSnapshot(invitation.job),
+                    job_snapshot: this.toJsonSnapshot({
+                        ...invitation.job,
+                        interview_session_history: interviewHistory,
+                    }),
                 };
             }
             selectedLanguage = requestedLanguage;
@@ -465,6 +569,7 @@ export class InterviewService {
                     ...existingResources,
                     available_languages: resolvedAvailable,
                     requires_language_choice: false,
+                    interview_session_history: interviewHistory,
                 };
             }
         }
@@ -503,7 +608,10 @@ export class InterviewService {
             .map(question => question.trim())
             .filter(Boolean);
         const agencySnapshot = this.toJsonSnapshot(agency);
-        const jobSnapshot = this.toJsonSnapshot(job);
+        const jobSnapshot = this.toJsonSnapshot({
+            ...job,
+            interview_session_history: interviewHistory,
+        });
         const resumeSnapshot = this.toJsonSnapshot({
             resume,
             structured: resumeStructured,
@@ -531,6 +639,7 @@ export class InterviewService {
                 ...updatedResources,
                 available_languages: resolvedAvailable,
                 requires_language_choice: false,
+                interview_session_history: interviewHistory,
             };
         }
 
@@ -557,6 +666,7 @@ export class InterviewService {
             ...createdResources,
             available_languages: resolvedAvailable,
             requires_language_choice: false,
+            interview_session_history: interviewHistory,
         };
     }
 
@@ -785,11 +895,34 @@ export class InterviewService {
         return updatedSession;
     }
 
-    async postponeInterviewSession(interviewSessionId: number) {
+    async postponeInterviewSession(
+        interviewSessionId: number,
+        mode: "immediate" | "pick_datetime",
+        scheduledFor?: string
+    ) {
+        const now = new Date();
         const session = await this.prisma.interviewSession.findUnique({
             where: { id: interviewSessionId },
+            include: {
+                invitation_token: {
+                    include: {
+                        candidate: true,
+                        invitation: {
+                            include: {
+                                from: true,
+                                job: true,
+                                to: {
+                                    include: {
+                                        resume_structured: true,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
         });
-        if (!session) {
+        if (!session || !session.invitation_token || !session.invitation_token.invitation) {
             throw new BadRequestException("Interview session not found.");
         }
         if (session.status === InterviewSessionStatus.completed) {
@@ -798,20 +931,161 @@ export class InterviewService {
         if (session.status === InterviewSessionStatus.cancelled) {
             throw new BadRequestException("Interview session already cancelled.");
         }
-        const [updatedSession] = await this.prisma.$transaction([
-            this.prisma.interviewSession.update({
+        if (session.status === InterviewSessionStatus.postponed) {
+            throw new BadRequestException("Interview session already postponed.");
+        }
+
+        const sessionStartedAt = new Date(session.created_at);
+        const postponeLockDurationMs = 5 * 60 * 1000;
+        if (
+            !Number.isNaN(sessionStartedAt.getTime()) &&
+            now.getTime() - sessionStartedAt.getTime() < postponeLockDurationMs
+        ) {
+            throw new BadRequestException(
+                "Postpone is available only after the first 5 minutes of the interview."
+            );
+        }
+
+        const invitationToken = session.invitation_token;
+        const invitation = invitationToken.invitation;
+        const job = invitation.job;
+        const resumeEmail = this.extractEmailFromResumeStructured(
+            invitation.to?.resume_structured?.data
+        );
+
+        const candidateFromEmail = resumeEmail
+            ? await this.prisma.candidate.findFirst({
+                where: { email: resumeEmail },
+                select: { id: true, email: true },
+            })
+            : null;
+        const resolvedCandidateId =
+            invitationToken.candidate_id ?? invitationToken.candidate?.id ?? candidateFromEmail?.id ?? null;
+        const resolvedCandidateEmail =
+            invitationToken.candidate?.email ?? candidateFromEmail?.email ?? resumeEmail ?? null;
+        const resolvedCandidateName =
+            invitationToken.candidate?.candidate_name ??
+            this.extractNameFromResumeStructured(invitation.to?.resume_structured?.data, invitation.to?.name) ??
+            "Candidate";
+
+        if (!resolvedCandidateId) {
+            throw new BadRequestException("Unable to resolve candidate for postpone.");
+        }
+
+        const activeRangeEnd = new Date(
+            (job as unknown as { auto_deactivate_at: Date }).auto_deactivate_at
+        );
+        if (!job.is_active || activeRangeEnd <= now) {
+            throw new BadRequestException("This job is currently closed and cannot accept postponements.");
+        }
+
+        let chosenDatetime: Date | null = null;
+        if (mode === "pick_datetime") {
+            if (!scheduledFor) {
+                throw new BadRequestException("scheduled_for is required for pick_datetime mode.");
+            }
+            chosenDatetime = new Date(scheduledFor);
+            if (Number.isNaN(chosenDatetime.getTime())) {
+                throw new BadRequestException("Invalid scheduled_for value.");
+            }
+            if (!(chosenDatetime > now && chosenDatetime < activeRangeEnd)) {
+                throw new BadRequestException("Chosen datetime must be within the active job range.");
+            }
+        }
+
+        const previousPostpones = await this.prisma.interviewSession.count({
+            where: {
+                id: { not: interviewSessionId },
+                status: InterviewSessionStatus.postponed,
+                invitation_token: {
+                    candidate_id: resolvedCandidateId,
+                    invitation: { job_id: job.id },
+                },
+            },
+        });
+        if (previousPostpones > 0) {
+            throw new BadRequestException("Postpone is allowed only once per job.");
+        }
+
+        const { token: newTokenValue, expires_at: newTokenExpiresAt } =
+            this.randomUuidService.generateInvitationToken(1);
+
+        const updatedSession = await this.prisma.$transaction(async (tx) => {
+            await tx.invitationToken.updateMany({
+                where: {
+                    invitation_id: invitation.id,
+                    revoked: false,
+                },
+                data: {
+                    revoked: true,
+                    status: InvitationTokenStatus.invalid,
+                },
+            });
+
+            const newToken = await tx.invitationToken.create({
+                data: {
+                    token: newTokenValue,
+                    expires_at: newTokenExpiresAt,
+                    invitation_id: invitation.id,
+                    candidate_id: resolvedCandidateId,
+                },
+                select: { token: true, expires_at: true },
+            });
+
+            const nextQaLog = Array.isArray(session.qa_log) ? [...session.qa_log] : [];
+            nextQaLog.push({
+                event: "postponed",
+                mode,
+                scheduled_for: chosenDatetime?.toISOString() ?? null,
+                new_token_expires_at: newToken.expires_at.toISOString(),
+                happened_at: now.toISOString(),
+            });
+
+            const updated = await tx.interviewSession.update({
                 where: { id: interviewSessionId },
-                data: { status: "postponed" as unknown as InterviewSessionStatus },
-            }),
-            this.prisma.invitationToken.update({
-                where: { id: session.invitation_token_id },
-                data: { revoked: true, status: InvitationTokenStatus.invalid },
-            }),
-        ]);
+                data: {
+                    status: InterviewSessionStatus.postponed,
+                    qa_log: nextQaLog as unknown as Prisma.InputJsonValue,
+                },
+            });
+
+            return updated;
+        });
+
+        const frontendBaseUrl = this.getCandidateFrontendBaseUrl();
+        const invitationUrl = `${frontendBaseUrl}/invitation?token=${newTokenValue}`;
+        const logoUrl = `${frontendBaseUrl}/brand/plato-logo.png`;
+        const emailPayload = invitationTemplate({
+            recipientName: resolvedCandidateName ?? undefined,
+            agencyName: invitation.from?.company_name,
+            invitationUrl,
+            expiresAt: newTokenExpiresAt,
+            logoUrl,
+        });
+        if (resolvedCandidateEmail) {
+            await this.sendGridService.sendEmail(
+                resolvedCandidateEmail,
+                emailPayload.subject,
+                `${emailPayload.text}\n\nImportant: your new interview link is valid for 24 hours only.`,
+                emailPayload.html
+            );
+        }
 
         await this.notifyInterviewStatus(updatedSession.id, InterviewSessionStatus.postponed);
 
-        return updatedSession;
+        return responseFormatter(
+            {
+                ...updatedSession,
+                mode,
+                scheduled_for: chosenDatetime?.toISOString() ?? null,
+                new_invitation_token_expires_at: newTokenExpiresAt,
+                message:
+                    "Interview postponed successfully. A new invitation link has been sent and is valid for 1 day.",
+            },
+            undefined,
+            "Interview postponed successfully.",
+            200
+        );
     }
 
     async appendQaLogEntry(

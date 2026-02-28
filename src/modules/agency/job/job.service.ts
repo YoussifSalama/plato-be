@@ -38,6 +38,29 @@ export class JobService {
         }
     }
 
+    private parseAutoDeactivateAt(value?: string) {
+        if (!value) {
+            return undefined;
+        }
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+            throw new BadRequestException("Invalid auto_deactivate_at value.");
+        }
+        return parsed;
+    }
+
+    private resolveJobStatus(job: { is_active: boolean; auto_deactivate_at?: Date | string | null }, now = new Date()) {
+        const deactivationDate = job.auto_deactivate_at ? new Date(job.auto_deactivate_at) : null;
+        const autoExpired = Boolean(deactivationDate && deactivationDate <= now);
+        const effectiveIsActive = Boolean(job.is_active && !autoExpired);
+        const inactive_reason = effectiveIsActive ? null : (job.is_active ? "auto_deactivated" : "manual_inactive");
+        return {
+            effective_is_active: effectiveIsActive,
+            inactive_reason,
+            is_auto_deactivated: autoExpired,
+        } as const;
+    }
+
     private async getAgencyId(accountId: number) {
         const account = await this.prisma.account.findUnique({
             where: { id: accountId },
@@ -53,12 +76,17 @@ export class JobService {
     async createJob(accountId: number, dto: CreateJobDto) {
         this.validateSalaryRange(dto.salary_from, dto.salary_to);
         const agencyId = await this.getAgencyId(accountId);
+        const autoDeactivateAt = this.parseAutoDeactivateAt(dto.auto_deactivate_at);
+        if (!autoDeactivateAt) {
+            throw new BadRequestException("auto_deactivate_at is required.");
+        }
         const jobClient = (this.prisma as unknown as {
             job: { create: (args: { data: Record<string, unknown> }) => Promise<unknown> }
         }).job;
         return jobClient.create({
             data: {
                 ...dto,
+                auto_deactivate_at: autoDeactivateAt,
                 agency_id: agencyId,
                 updated_by: accountId,
                 soft_skills: dto.soft_skills ?? [],
@@ -73,6 +101,7 @@ export class JobService {
         this.ensureUpdateFields(dto);
         this.validateSalaryRange(dto.salary_from, dto.salary_to);
         const agencyId = await this.getAgencyId(accountId);
+        const autoDeactivateAt = this.parseAutoDeactivateAt(dto.auto_deactivate_at);
         const jobClient = (this.prisma as unknown as {
             job: {
                 findFirst: (args: { where: { id: number; agency_id: number }; select: { id: true } }) => Promise<{ id: number } | null>
@@ -90,6 +119,7 @@ export class JobService {
             where: { id: jobId },
             data: {
                 ...dto,
+                ...(autoDeactivateAt ? { auto_deactivate_at: autoDeactivateAt } : {}),
                 updated_by: accountId,
                 ...(dto.soft_skills ? { soft_skills: dto.soft_skills } : {}),
                 ...(dto.technical_skills ? { technical_skills: dto.technical_skills } : {}),
@@ -100,7 +130,7 @@ export class JobService {
 
     async getJobById(accountId: number, jobId: number) {
         const agencyId = await this.getAgencyId(accountId);
-        const job = await (this.prisma as unknown as {
+        const rawJob = await (this.prisma as unknown as {
             job: {
                 findFirst: (args: Record<string, unknown>) => Promise<unknown | null>;
             };
@@ -110,10 +140,14 @@ export class JobService {
                 jobAiPrompt: true,
             },
         });
-        if (!job) {
+        if (!rawJob) {
             throw new BadRequestException("Job not found.");
         }
-        return job;
+        const job = rawJob as { is_active: boolean; auto_deactivate_at: Date } & Record<string, unknown>;
+        return {
+            ...job,
+            ...this.resolveJobStatus(job),
+        };
     }
 
     async getJobResumes(accountId: number, jobId: number, dto: GetJobResumesDto) {
@@ -279,10 +313,15 @@ export class JobService {
         if (!job) {
             throw new BadRequestException("Job not found.");
         }
-        return jobClient.update({
+        const updated = await jobClient.update({
             where: { id: jobId },
             data: { is_active: isActive, updated_by: accountId },
         });
+        const updatedJob = updated as { is_active: boolean; auto_deactivate_at?: Date } & Record<string, unknown>;
+        return {
+            ...updatedJob,
+            ...this.resolveJobStatus(updatedJob),
+        };
     }
 
     async upsertJobAiPrompt(accountId: number, jobId: number, dto: CreateJobAiPromptDto) {
@@ -380,6 +419,7 @@ export class JobService {
     async getJobs(accountId: number, getJobsDto: GetJobsDto) {
         const agencyId = await this.getAgencyId(accountId);
         const partialMatching = getJobsDto.partial_matching?.trim();
+        const now = new Date();
         const filters: Prisma.JobWhereInput[] = [
             { agency_id: agencyId },
         ];
@@ -404,7 +444,17 @@ export class JobService {
         }
 
         if (typeof getJobsDto.is_active === "boolean") {
-            filters.push({ is_active: getJobsDto.is_active });
+            if (getJobsDto.is_active) {
+                filters.push({ is_active: true });
+                filters.push({ auto_deactivate_at: { gt: now } });
+            } else {
+                filters.push({
+                    OR: [
+                        { is_active: false },
+                        { auto_deactivate_at: { lte: now } },
+                    ],
+                });
+            }
         }
 
         const filterObject: Prisma.JobWhereInput =
@@ -435,25 +485,32 @@ export class JobService {
                 industry: true,
                 location: true,
                 is_active: true,
+                auto_deactivate_at: true,
                 created_at: true,
             },
             ...pagination,
         });
+        const jobsWithEffectiveStatus = (jobs as Array<Record<string, unknown> & { is_active: boolean; auto_deactivate_at: Date }>).map((job) => ({
+            ...job,
+            ...this.resolveJobStatus(job, now),
+        }));
 
         const paginationMeta = await this.paginationHelper.generatePaginationMeta(
             getJobsDto,
             Prisma.ModelName.Job,
             filterObject,
         );
-        return responseFormatter(jobs, paginationMeta, "Jobs fetched successfully", 200);
+        return responseFormatter(jobsWithEffectiveStatus, paginationMeta, "Jobs fetched successfully", 200);
     }
 
     async searchActiveJobs(accountId: number, dto: SearchJobsDto) {
         const agencyId = await this.getAgencyId(accountId);
         const partialMatching = dto.partial_matching?.trim();
+        const now = new Date();
         const filters: Prisma.JobWhereInput[] = [
             { agency_id: agencyId },
             { is_active: true },
+            { auto_deactivate_at: { gt: now } },
         ];
 
         if (partialMatching) {
