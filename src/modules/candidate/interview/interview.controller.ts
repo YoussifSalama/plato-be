@@ -167,7 +167,8 @@ export class InterviewController {
             const result = await this.interviewService.postponeInterviewSession(
                 body.interview_session_id,
                 body.mode,
-                body.scheduled_for
+                body.scheduled_for,
+                body.scheduled_for_date
             );
             this.logger.log(
                 `postpone.done session=${body.interview_session_id} ms=${Date.now() - startedAt}`

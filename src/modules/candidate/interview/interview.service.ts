@@ -897,9 +897,12 @@ export class InterviewService {
 
     async postponeInterviewSession(
         interviewSessionId: number,
-        mode: "immediate" | "pick_datetime",
-        scheduledFor?: string
+        mode: "immediate" | "pick_datetime" | "pick_date",
+        scheduledFor?: string,
+        scheduledForDate?: string
     ) {
+        const normalizeDateOnly = (date: Date) =>
+            new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
         const now = new Date();
         const session = await this.prisma.interviewSession.findUnique({
             where: { id: interviewSessionId },
@@ -936,13 +939,13 @@ export class InterviewService {
         }
 
         const sessionStartedAt = new Date(session.created_at);
-        const postponeLockDurationMs = 5 * 60 * 1000;
+        const postponeLockDurationMs = 2 * 60 * 1000;
         if (
             !Number.isNaN(sessionStartedAt.getTime()) &&
             now.getTime() - sessionStartedAt.getTime() < postponeLockDurationMs
         ) {
             throw new BadRequestException(
-                "Postpone is available only after the first 5 minutes of the interview."
+                "Postpone is available only after the first 2 minutes of the interview."
             );
         }
 
@@ -972,25 +975,45 @@ export class InterviewService {
             throw new BadRequestException("Unable to resolve candidate for postpone.");
         }
 
-        const activeRangeEnd = new Date(
-            (job as unknown as { auto_deactivate_at: Date }).auto_deactivate_at
-        );
-        if (!job.is_active || activeRangeEnd <= now) {
+        const autoDeactivateAt = (job as unknown as { auto_deactivate_at?: Date | string | null })
+            .auto_deactivate_at;
+        const activeRangeEnd = autoDeactivateAt ? new Date(autoDeactivateAt) : null;
+        if (!job.is_active || !activeRangeEnd || Number.isNaN(activeRangeEnd.getTime()) || activeRangeEnd <= now) {
             throw new BadRequestException("This job is currently closed and cannot accept postponements.");
         }
 
+        const minSelectableDate = normalizeDateOnly(now);
+        const maxSelectableDate = normalizeDateOnly(activeRangeEnd);
+        maxSelectableDate.setUTCDate(maxSelectableDate.getUTCDate() - 1);
+        if (maxSelectableDate < minSelectableDate) {
+            throw new BadRequestException(
+                "Postpone is currently unavailable because there are no valid rescheduling dates."
+            );
+        }
+
         let chosenDatetime: Date | null = null;
-        if (mode === "pick_datetime") {
-            if (!scheduledFor) {
-                throw new BadRequestException("scheduled_for is required for pick_datetime mode.");
+        if (mode === "pick_datetime" || mode === "pick_date") {
+            const rawDate = mode === "pick_date" ? scheduledForDate : scheduledFor;
+            if (!rawDate) {
+                throw new BadRequestException(
+                    mode === "pick_date"
+                        ? "scheduled_for_date is required for pick_date mode."
+                        : "scheduled_for is required for pick_datetime mode."
+                );
             }
-            chosenDatetime = new Date(scheduledFor);
-            if (Number.isNaN(chosenDatetime.getTime())) {
-                throw new BadRequestException("Invalid scheduled_for value.");
+            const parsedDate = new Date(rawDate);
+            if (Number.isNaN(parsedDate.getTime())) {
+                throw new BadRequestException(
+                    mode === "pick_date" ? "Invalid scheduled_for_date value." : "Invalid scheduled_for value."
+                );
             }
-            if (!(chosenDatetime > now && chosenDatetime < activeRangeEnd)) {
-                throw new BadRequestException("Chosen datetime must be within the active job range.");
+            const normalizedChosenDate = normalizeDateOnly(parsedDate);
+            if (normalizedChosenDate < minSelectableDate || normalizedChosenDate > maxSelectableDate) {
+                throw new BadRequestException(
+                    "Chosen date must be between today and one day before the job max active date."
+                );
             }
+            chosenDatetime = normalizedChosenDate;
         }
 
         const previousPostpones = await this.prisma.interviewSession.count({
@@ -1037,6 +1060,9 @@ export class InterviewService {
                 event: "postponed",
                 mode,
                 scheduled_for: chosenDatetime?.toISOString() ?? null,
+                scheduled_for_date: chosenDatetime
+                    ? chosenDatetime.toISOString().slice(0, 10)
+                    : null,
                 new_token_expires_at: newToken.expires_at.toISOString(),
                 happened_at: now.toISOString(),
             });
@@ -1078,6 +1104,9 @@ export class InterviewService {
                 ...updatedSession,
                 mode,
                 scheduled_for: chosenDatetime?.toISOString() ?? null,
+                scheduled_for_date: chosenDatetime
+                    ? chosenDatetime.toISOString().slice(0, 10)
+                    : null,
                 new_invitation_token_expires_at: newTokenExpiresAt,
                 message:
                     "Interview postponed successfully. A new invitation link has been sent and is valid for 1 day.",
