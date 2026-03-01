@@ -11,6 +11,7 @@ type MatchedJob = {
     missing_skills: string[];
     ai_reasoning?: string | null;
     has_applied: boolean;
+    is_saved: boolean;
 };
 
 @Injectable()
@@ -60,8 +61,16 @@ export class JobMatchingService {
         return new Set(applications.map(app => app.job_id));
     }
 
+    private async getSavedJobIds(candidateId: number): Promise<Set<number>> {
+        const savedJobs = await this.prisma.candidateSavedJob.findMany({
+            where: { candidate_id: candidateId },
+            select: { job_id: true }
+        });
+        return new Set(savedJobs.map(job => job.job_id));
+    }
+
     async getSavedMatches(candidateId: number) {
-        const [matches, appliedJobIds] = await Promise.all([
+        const [matches, appliedJobIds, savedJobIds] = await Promise.all([
             this.prisma.jobMatch.findMany({
                 where: { candidate_id: candidateId },
                 include: {
@@ -79,7 +88,8 @@ export class JobMatchingService {
                 },
                 orderBy: { match_score: 'desc' }
             }),
-            this.getAppliedJobIds(candidateId)
+            this.getAppliedJobIds(candidateId),
+            this.getSavedJobIds(candidateId)
         ]);
 
         return matches.map(match => ({
@@ -88,7 +98,8 @@ export class JobMatchingService {
             matched_skills: match.matched_skills,
             missing_skills: match.missing_skills,
             ai_reasoning: match.ai_reasoning || undefined,
-            has_applied: appliedJobIds.has(match.job_id)
+            has_applied: appliedJobIds.has(match.job_id),
+            is_saved: savedJobIds.has(match.job_id)
         }));
     }
 
@@ -196,8 +207,11 @@ export class JobMatchingService {
             .sort((a, b) => b.heuristic_score - a.heuristic_score)
             .slice(0, 5);
 
-        // Fetch applied jobs efficiently
-        const appliedJobIds = await this.getAppliedJobIds(candidateId);
+        // Fetch applied and saved jobs efficiently
+        const [appliedJobIds, savedJobIds] = await Promise.all([
+            this.getAppliedJobIds(candidateId),
+            this.getSavedJobIds(candidateId)
+        ]);
 
         // 4. AI Re-ranking
         const aiScoredMatches = await Promise.all(topMatches.map(async (job) => {
@@ -225,14 +239,16 @@ export class JobMatchingService {
                     ...job,
                     match_score: result.score,
                     ai_reasoning: result.reasoning,
-                    has_applied: appliedJobIds.has(job.id)
+                    has_applied: appliedJobIds.has(job.id),
+                    is_saved: savedJobIds.has(job.id)
                 };
             } catch (error) {
                 this.logger.error(`AI scoring failed for job ${job.id}: ${error instanceof Error ? error.message : error}`);
                 return {
                     ...job,
                     match_score: job.heuristic_score,
-                    has_applied: appliedJobIds.has(job.id)
+                    has_applied: appliedJobIds.has(job.id),
+                    is_saved: savedJobIds.has(job.id)
                 };
             }
         }));
@@ -255,5 +271,109 @@ export class JobMatchingService {
         const matches = await this.computeMatches(candidateId);
         await this.saveMatches(candidateId, matches);
         return matches;
+    }
+
+    async saveJob(candidateId: number, jobId: number) {
+        try {
+            await this.prisma.candidateSavedJob.create({
+                data: {
+                    candidate_id: candidateId,
+                    job_id: jobId
+                }
+            });
+            return { success: true, message: "Job saved successfully." };
+        } catch (error: any) {
+            if (error.code === 'P2002') {
+                throw new BadRequestException("Job is already saved.");
+            }
+            throw error;
+        }
+    }
+
+    async unsaveJob(candidateId: number, jobId: number) {
+        try {
+            await this.prisma.candidateSavedJob.delete({
+                where: {
+                    candidate_id_job_id: {
+                        candidate_id: candidateId,
+                        job_id: jobId
+                    }
+                }
+            });
+            return { success: true, message: "Job unsaved successfully." };
+        } catch (error: any) {
+            if (error.code === 'P2025') {
+                throw new BadRequestException("Job was not saved.");
+            }
+            throw error;
+        }
+    }
+
+    async getSavedJobs(candidateId: number, page: number = 1, limit: number = 10) {
+        const skip = (page - 1) * limit;
+
+        const [total_saved, savedJobs] = await Promise.all([
+            this.prisma.candidateSavedJob.count({
+                where: { candidate_id: candidateId }
+            }),
+            this.prisma.candidateSavedJob.findMany({
+                where: { candidate_id: candidateId },
+                skip,
+                take: limit,
+                orderBy: { created_at: 'desc' },
+                include: {
+                    job: {
+                        include: {
+                            agency: {
+                                select: {
+                                    company_name: true,
+                                    company_industry: true,
+                                    company_size: true
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+        ]);
+
+        const appliedJobIds = await this.getAppliedJobIds(candidateId);
+
+        // Fetch matches for these jobs efficiently to retrieve scores/skills
+        const matches = await this.prisma.jobMatch.findMany({
+            where: {
+                candidate_id: candidateId,
+                job_id: { in: savedJobs.map(sj => sj.job_id) }
+            }
+        });
+
+        // Create a map for quick lookup
+        const matchesMap = new Map<number, (typeof matches)[0]>();
+        for (const match of matches) {
+            matchesMap.set(match.job_id, match);
+        }
+
+        const data = savedJobs.map(sj => {
+            const match = matchesMap.get(sj.job_id);
+            return {
+                ...sj.job,
+                match_score: match?.match_score || 0,
+                matched_skills: match?.matched_skills || [],
+                missing_skills: match?.missing_skills || [],
+                ai_reasoning: match?.ai_reasoning || undefined,
+                has_applied: appliedJobIds.has(sj.job_id),
+                is_saved: true
+            };
+        });
+
+        return {
+            data,
+            meta: {
+                total_saved,
+                page,
+                limit,
+                totalPages: Math.ceil(total_saved / limit)
+            }
+        };
     }
 }
