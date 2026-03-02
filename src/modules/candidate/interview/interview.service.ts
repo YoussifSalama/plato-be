@@ -22,6 +22,7 @@ import { GetInterviewSessionsDto } from './dto/get-interview-sessions.dto';
 import { PaginationHelper } from 'src/shared/helpers/features/pagination';
 import { InboxService } from 'src/modules/agency/inbox/inbox.service';
 import { OpenAiKeyRotator } from 'src/shared/helpers/ai/openai-key-rotator';
+import { CandidateNotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class InterviewService {
@@ -32,7 +33,8 @@ export class InterviewService {
         private readonly speechService: SpeechService,
         private readonly paginationHelper: PaginationHelper,
         private readonly inboxService: InboxService,
-        private readonly configService: ConfigService
+        private readonly configService: ConfigService,
+        private readonly candidateNotificationService: CandidateNotificationService
     ) {
         const apiKeys = this.configService.get<string[]>("env.openai.apiKeys") ?? [];
         if (!apiKeys.length) throw new Error("No OpenAI API keys configured.");
@@ -1240,26 +1242,34 @@ export class InterviewService {
                 }
             });
 
-            if (!session || !session.invitation_token || !session.invitation_token.invitation || !session.invitation_token.invitation.job) {
+            if (!session?.invitation_token?.invitation?.job) {
                 return;
             }
 
             const candidate = session.invitation_token.candidate;
             const job = session.invitation_token.invitation.job;
-            const candidateName = candidate
-                ? (candidate.candidate_name || `${candidate.f_name} ${candidate.l_name}`.trim())
-                : "Unknown Candidate";
 
-            await this.inboxService.createInterviewInbox({
-                agencyId: session.agency_id,
-                jobId: job.id,
-                interviewSessionId: sessionId,
-                status,
-                candidateName,
-                jobTitle: job.title,
-            });
+            if (candidate) {
+                const candidateName = candidate.candidate_name || `${candidate.f_name} ${candidate.l_name}`.trim();
+
+                await this.inboxService.createInterviewInbox({
+                    agencyId: session.agency_id,
+                    jobId: job.id,
+                    interviewSessionId: sessionId,
+                    status,
+                    candidateName,
+                    jobTitle: job.title,
+                });
+
+                this.candidateNotificationService.emitInterviewUpdate(candidate.id, {
+                    type: 'INTERVIEW_STATUS_CHANGED',
+                    interviewSessionId: sessionId,
+                    status,
+                    jobTitle: job.title
+                });
+            }
         } catch (error) {
-            console.error('Failed to create interview inbox notification', error);
+            console.error('Failed to create interview notification', error);
         }
     }
 }

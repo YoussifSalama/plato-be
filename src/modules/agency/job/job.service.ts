@@ -77,6 +77,7 @@ export class JobService {
                     technical_skills: dto.technical_skills ?? [],
                     languages: dto.languages ?? [],
                     certifications: dto.certifications ?? "",
+                    ...(dto.auto_deactivate_at ? { auto_deactivate_at: new Date(dto.auto_deactivate_at) } : {}),
                 },
             });
 
@@ -118,6 +119,7 @@ export class JobService {
                 ...(dto.soft_skills ? { soft_skills: dto.soft_skills } : {}),
                 ...(dto.technical_skills ? { technical_skills: dto.technical_skills } : {}),
                 ...(dto.languages ? { languages: dto.languages } : {}),
+                ...(dto.auto_deactivate_at ? { auto_deactivate_at: new Date(dto.auto_deactivate_at) } : {}),
             }
         });
     }

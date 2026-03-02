@@ -6,9 +6,10 @@ import { JwtService } from 'src/shared/services/jwt.services';
 import { CandidateJwtAuthGuard } from 'src/shared/guards/candidate-jwt-auth.guard';
 import { InboxModule } from 'src/modules/agency/inbox/inbox.module';
 import { ResumeQueueModule } from 'src/queues/agency/resume/resume.module';
+import { CandidateNotificationModule } from '../notification/notification.module';
 
 @Module({
-    imports: [PrismaModule, InboxModule, ResumeQueueModule],
+    imports: [PrismaModule, InboxModule, ResumeQueueModule, CandidateNotificationModule],
     controllers: [ApplicationController],
     providers: [ApplicationService, JwtService, CandidateJwtAuthGuard],
 })

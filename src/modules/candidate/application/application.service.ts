@@ -3,13 +3,15 @@ import { PrismaService } from 'src/modules/prisma/prisma.service';
 import { ResumeFileTypes } from '@generated/prisma';
 import { InboxService } from 'src/modules/agency/inbox/inbox.service';
 import { ResumeProducer } from 'src/queues/agency/resume/resume.producer';
+import { CandidateNotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class ApplicationService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly inboxService: InboxService,
-        private readonly resumeProducer: ResumeProducer
+        private readonly resumeProducer: ResumeProducer,
+        private readonly candidateNotificationService: CandidateNotificationService
     ) { }
 
     async apply(candidateId: number, jobId: number) {
@@ -137,6 +139,8 @@ export class ApplicationService {
         } catch (error) {
             console.error('Failed to dispatch resume to queue for processing', error);
         }
+
+        this.candidateNotificationService.emitApplicationUpdate(candidateId, { type: 'JOB_APPLIED', jobId, jobTitle: job.title });
 
         return application;
     }

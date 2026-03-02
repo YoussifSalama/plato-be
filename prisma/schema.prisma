@@ -1,4 +1,3 @@
-// --- datasource.prisma ---
 generator client {
   provider      = "prisma-client-js"
   output        = "../src/generated/prisma"
@@ -9,7 +8,567 @@ datasource db {
   provider = "postgresql"
 }
 
-// --- enum.prisma ---
+model Resume {
+  id                  Int                  @id @default(autoincrement())
+  name                String
+  link                String
+  created_at          DateTime             @default(now())
+  updated_at          DateTime             @updatedAt
+  parsed              String?
+  file_type           ResumeFileTypes
+  job_id              Int
+  auto_denied         Boolean              @default(false)
+  auto_invited        Boolean              @default(false)
+  auto_shortlisted    Boolean              @default(false)
+  updated_by          Int?
+  interview_resources InterviewResources[]
+  invitation          Invitation?
+  application         JobApplication?
+  job                 Job                  @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  updater             Account?             @relation("ResumeUpdater", fields: [updated_by], references: [id])
+  resume_analysis     ResumeAnalysis?
+  resume_structured   ResumeStructured?
+}
+
+model ResumeStructured {
+  id         Int      @id @default(autoincrement())
+  data       Json
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  resume_id  Int      @unique
+  resume     Resume   @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+}
+
+model ResumeAnalysis {
+  id              Int                          @id @default(autoincrement())
+  score           Int
+  recommendation  ResumeAnalysisRecommendation
+  insights        Json
+  createdAt       DateTime                     @default(now())
+  resume_id       Int                          @unique
+  seniority_level String
+  job_id          Int
+  updated_by      Int?
+  job             Job                          @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  resume          Resume                       @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+  updater         Account?                     @relation("ResumeAnalysisUpdater", fields: [updated_by], references: [id])
+}
+
+model ResumeProcessingBatch {
+  id              Int                  @id @default(autoincrement())
+  created_at      DateTime             @default(now())
+  updated_at      DateTime             @updatedAt
+  status          ResumeAiBatchStatus?
+  ai_meta         Json?
+  batch_id        String?              @unique
+  input_file_id   String               @unique
+  input_file_link String
+  output_file_id  String?
+  inboxes         Inbox[]
+}
+
+model Account {
+  id                      Int                  @id @default(autoincrement())
+  email                   String               @unique
+  f_name                  String
+  l_name                  String
+  user_name               String
+  agency_id               Int?                 @unique
+  credential_id           Int                  @unique
+  created_at              DateTime             @default(now())
+  updated_at              DateTime             @updatedAt
+  verified                Boolean              @default(false)
+  auth_provider           String?
+  google_id               String?              @unique
+  profile_image_url       String?
+  agency                  Agency?              @relation(fields: [agency_id], references: [id])
+  credential              Credential           @relation(fields: [credential_id], references: [id], onDelete: Cascade)
+  updated_invitations     Invitation[]         @relation("InvitationUpdater")
+  updated_jobs            Job[]                @relation("JobUpdater")
+  updated_job_prompts     JobAiPrompt[]        @relation("JobUpdater")
+  updated_job_matches     JobMatch[]           @relation("JobUpdater")
+  otps                    Otp[]
+  updated_resumes         Resume[]             @relation("ResumeUpdater")
+  updated_resume_analyses ResumeAnalysis[]     @relation("ResumeAnalysisUpdater")
+  teamMember              TeamMember?          @relation("AccountTeamMember")
+  tokens                  Token[]
+  verify_account_tokens   VerifyAccountToken[]
+}
+
+model Agency {
+  id                  Int                  @id @default(autoincrement())
+  company_name        String?
+  organization_url    String?
+  company_size        String?
+  company_description String?
+  created_at          DateTime             @default(now())
+  updated_at          DateTime             @updatedAt
+  company_industry    String?
+  organization_id     String?              @unique
+  team_id             Int?                 @unique
+  account             Account?
+  team                Team?                @relation(fields: [team_id], references: [id])
+  agency_subscription AgencySubscription?
+  inboxes             Inbox[]
+  interview_resources InterviewResources[]
+  interview_sessions  InterviewSession[]
+  invitations         Invitation[]
+  jobs                Job[]
+  team_invitations    TeamInvitation[]
+}
+
+model Credential {
+  id            Int      @id @default(autoincrement())
+  password_hash String
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  account       Account?
+}
+
+model Team {
+  id         Int          @id @default(autoincrement())
+  created_at DateTime     @default(now())
+  updated_at DateTime     @updatedAt
+  agency     Agency?
+  members    TeamMember[]
+}
+
+model TeamMember {
+  id          Int              @id @default(autoincrement())
+  name        String?
+  email       String           @unique
+  phone       String?          @unique
+  team_id     Int?
+  created_at  DateTime         @default(now())
+  updated_at  DateTime         @updatedAt
+  account_id  Int?             @unique
+  invitations TeamInvitation[]
+  account     Account?         @relation("AccountTeamMember", fields: [account_id], references: [id])
+  team        Team?            @relation(fields: [team_id], references: [id])
+}
+
+model TeamInvitation {
+  id         Int        @id @default(autoincrement())
+  code       String     @unique
+  revoked    Boolean    @default(false)
+  expires_at DateTime
+  agency_id  Int
+  member_id  Int
+  created_at DateTime   @default(now())
+  updated_at DateTime   @updatedAt
+  agency     Agency     @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+  member     TeamMember @relation(fields: [member_id], references: [id])
+}
+
+model Token {
+  id            Int      @id @default(autoincrement())
+  refresh_token String
+  account_id    Int
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  account       Account  @relation(fields: [account_id], references: [id], onDelete: Cascade)
+}
+
+model Otp {
+  id         Int        @id @default(autoincrement())
+  code       String
+  purpose    OtpPurpose
+  expires_at DateTime
+  used_at    DateTime?
+  account_id Int
+  created_at DateTime   @default(now())
+  updated_at DateTime   @updatedAt
+  account    Account    @relation(fields: [account_id], references: [id], onDelete: Cascade)
+}
+
+model VerifyAccountToken {
+  id         Int       @id @default(autoincrement())
+  token      String    @unique
+  expires_at DateTime
+  used_at    DateTime?
+  account_id Int
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  account    Account   @relation(fields: [account_id], references: [id], onDelete: Cascade)
+}
+
+model SubscriptionPlan {
+  id                       Int                  @id @default(autoincrement())
+  name                     PlanName             @unique
+  interview_sessions_quota Int
+  resume_analysis_quota    Int
+  job_posting_quota        Int
+  created_at               DateTime             @default(now())
+  updated_at               DateTime             @updatedAt
+  price                    Int                  @default(0)
+  agency_subscriptions     AgencySubscription[]
+}
+
+model AgencySubscription {
+  id                      Int              @id @default(autoincrement())
+  agency_id               Int              @unique
+  plan_id                 Int
+  used_interview_sessions Int              @default(0)
+  used_resume_analysis    Int              @default(0)
+  used_job_posting        Int              @default(0)
+  start_date              DateTime         @default(now())
+  end_date                DateTime?
+  is_active               Boolean          @default(true)
+  created_at              DateTime         @default(now())
+  updated_at              DateTime         @updatedAt
+  agency                  Agency           @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+  plan                    SubscriptionPlan @relation(fields: [plan_id], references: [id])
+}
+
+model Job {
+  id                            Int                  @id @default(autoincrement())
+  title                         String
+  workplace_type                JobWorkplaceType
+  employment_type               JobEmploymentType
+  seniority_level               JobSeniorityLevel
+  industry                      JobIndustry
+  location                      String
+  auto_score_matching_threshold Int?
+  auto_email_invite_threshold   Int?
+  auto_shortlisted_threshold    Int?
+  auto_denied_threshold         Int?
+  is_active                     Boolean              @default(true)
+  salary_currency               JobSalaryCurrency
+  salary_from                   Decimal
+  salary_to                     Decimal
+  is_salary_negotiable          Boolean              @default(false)
+  description                   String
+  requirements                  String
+  certifications                String
+  technical_skills              String[]
+  languages                     Json[]
+  agency_id                     Int
+  created_at                    DateTime             @default(now())
+  updated_at                    DateTime             @updatedAt
+  job_ai_prompt_id              Int?                 @unique
+  company_overview              String?
+  job_benefits                  String?
+  nice_to_have                  String?
+  responsibilities              String?
+  role_overview                 String?
+  what_we_offer                 String?
+  soft_skills                   String[]
+  updated_by                    Int?
+  auto_deactivate_at            DateTime             @db.Date
+  inboxes                       Inbox[]
+  interview_resources           InterviewResources[]
+  invitations                   Invitation[]
+  agency                        Agency               @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+  jobAiPrompt                   JobAiPrompt?         @relation(fields: [job_ai_prompt_id], references: [id], onDelete: Cascade)
+  updater                       Account?             @relation("JobUpdater", fields: [updated_by], references: [id])
+  applications                  JobApplication[]
+  job_matches                   JobMatch[]
+  resumes                       Resume[]
+  resume_analyses               ResumeAnalysis[]
+  candidate_inboxes             CandidateInbox[]
+  candidate_saved_jobs          CandidateSavedJob[]
+}
+
+model CandidateSavedJob {
+  id           Int      @id @default(autoincrement())
+  candidate_id Int
+  job_id       Int
+  created_at   DateTime @default(now())
+
+  candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  job       Job       @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+  @@unique([candidate_id, job_id])
+}
+
+model CandidateInbox {
+  id                   Int                  @id @default(autoincrement())
+  type                 CandidateInboxType
+  status               CandidateInboxStatus @default(unread)
+  title                String
+  description          String?
+  candidate_id         Int
+  job_id               Int?
+  interview_session_id Int?
+  created_at           DateTime             @default(now())
+  updated_at           DateTime             @updatedAt
+  candidate            Candidate            @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  job                  Job?                 @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  interview_session    InterviewSession?    @relation(fields: [interview_session_id], references: [id], onDelete: Cascade)
+}
+
+model JobAiPrompt {
+  id         Int      @id @default(autoincrement())
+  target     String
+  prompt     String
+  evaluation Json?
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  updated_by Int?
+  job        Job?
+  updater    Account? @relation("JobUpdater", fields: [updated_by], references: [id])
+}
+
+model JobMatch {
+  id             Int       @id @default(autoincrement())
+  candidate_id   Int
+  job_id         Int
+  match_score    Int
+  ai_reasoning   String?
+  matched_skills String[]
+  missing_skills String[]
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+  updated_by     Int?
+  candidate      Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  job            Job       @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  updater        Account?  @relation("JobUpdater", fields: [updated_by], references: [id])
+
+  @@unique([candidate_id, job_id])
+  @@index([candidate_id])
+  @@index([job_id])
+}
+
+model Invitation {
+  id         Int               @id @default(autoincrement())
+  to_id      Int               @unique
+  from_id    Int
+  created_at DateTime          @default(now())
+  updated_at DateTime          @updatedAt
+  job_id     Int
+  updated_by Int?
+  candidate  Candidate?
+  from       Agency            @relation(fields: [from_id], references: [id])
+  job        Job               @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  to         Resume            @relation(fields: [to_id], references: [id])
+  updater    Account?          @relation("InvitationUpdater", fields: [updated_by], references: [id])
+  tokens     InvitationToken[]
+}
+
+model InvitationToken {
+  id                 Int                   @id @default(autoincrement())
+  token              String
+  expires_at         DateTime
+  revoked            Boolean               @default(false)
+  invitation_id      Int
+  created_at         DateTime              @default(now())
+  updated_at         DateTime              @updatedAt
+  candidate_id       Int?
+  status             InvitationTokenStatus @default(valid)
+  interview_resource InterviewResources?
+  interview_session  InterviewSession?
+  candidate          Candidate?            @relation(fields: [candidate_id], references: [id])
+  invitation         Invitation            @relation(fields: [invitation_id], references: [id])
+}
+
+model Inbox {
+  id                   Int                    @id @default(autoincrement())
+  type                 InboxType
+  status               InboxStatus
+  severity             InboxSeverity
+  title                String
+  description          String?
+  agency_id            Int
+  job_id               Int?
+  batch_id             Int?
+  created_at           DateTime               @default(now())
+  updated_at           DateTime               @updatedAt
+  interview_session_id Int?
+  job_application_id   Int?
+  agency               Agency                 @relation(fields: [agency_id], references: [id])
+  batch                ResumeProcessingBatch? @relation(fields: [batch_id], references: [id])
+  interview_session    InterviewSession?      @relation(fields: [interview_session_id], references: [id])
+  job_application      JobApplication?        @relation(fields: [job_application_id], references: [id])
+  job                  Job?                   @relation(fields: [job_id], references: [id])
+}
+
+model Candidate {
+  id                Int                    @id @default(autoincrement())
+  email             String?                @unique
+  candidate_name    String?
+  f_name            String
+  l_name            String
+  verified          Boolean                @default(false)
+  credential_id     Int                    @unique
+  created_at        DateTime               @default(now())
+  updated_at        DateTime               @updatedAt
+  invitation_id     Int?                   @unique
+  invited           Boolean                @default(false)
+  phone             String?                @unique
+  auth_provider     String?
+  google_id         String?                @unique
+  credential        CandidateCredential    @relation(fields: [credential_id], references: [id], onDelete: Cascade)
+  invitation        Invitation?            @relation(fields: [invitation_id], references: [id])
+  otps              CandidateOtp[]
+  tokens            CandidateToken[]
+  verify_tokens     CandidateVerifyToken[]
+  invitation_tokens InvitationToken[]
+  applications      JobApplication[]
+  job_matches       JobMatch[]
+  profile           Profile?
+  inboxes           CandidateInbox[]
+  saved_jobs        CandidateSavedJob[]
+}
+
+model CandidateToken {
+  id            Int       @id @default(autoincrement())
+  refresh_token String
+  candidate_id  Int
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+  candidate     Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+}
+
+model CandidateVerifyToken {
+  id           Int       @id @default(autoincrement())
+  token        String    @unique
+  expires_at   DateTime
+  used_at      DateTime?
+  candidate_id Int
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  candidate    Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+}
+
+model CandidateOtp {
+  id           Int        @id @default(autoincrement())
+  code         String
+  purpose      OtpPurpose
+  expires_at   DateTime
+  used_at      DateTime?
+  candidate_id Int
+  created_at   DateTime   @default(now())
+  updated_at   DateTime   @updatedAt
+  candidate    Candidate  @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+}
+
+model CandidateCredential {
+  id            Int        @id @default(autoincrement())
+  password_hash String
+  created_at    DateTime   @default(now())
+  updated_at    DateTime   @updatedAt
+  candidate     Candidate?
+}
+
+model Profile {
+  id            Int           @id @default(autoincrement())
+  avatar        String?
+  candidate_id  Int           @unique
+  headline      String?
+  summary       String?
+  location      String?
+  created_at    DateTime      @default(now())
+  updated_at    DateTime      @updatedAt
+  resume_link   String?
+  resume_parsed Json?
+  experiences   Experience[]
+  candidate     Candidate     @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  projects      Project[]
+  social_links  SocialLinks[]
+}
+
+model Experience {
+  id           Int                   @id @default(autoincrement())
+  profile_id   Int
+  company_name String
+  from         DateTime?
+  to           DateTime?
+  current      Boolean               @default(false)
+  role         String
+  description  String?
+  field        String
+  type         ProfileExperienceType
+  created_at   DateTime              @default(now())
+  updated_at   DateTime              @updatedAt
+  profile      Profile               @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+}
+
+model Project {
+  id          Int      @id @default(autoincrement())
+  profile_id  Int
+  name        String
+  description String?
+  role        String
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  profile     Profile  @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+}
+
+model SocialLinks {
+  id         Int      @id @default(autoincrement())
+  key        String
+  value      String
+  profile_id Int
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  profile    Profile  @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+
+  @@unique([profile_id, key])
+  @@index([profile_id])
+}
+
+model InterviewResources {
+  id                  Int             @id @default(autoincrement())
+  agency_id           Int
+  job_id              Int
+  resume_id           Int
+  invitation_token_id Int             @unique
+  agency_snapshot     Json
+  job_snapshot        Json
+  resume_snapshot     Json
+  prepared_questions  String[]
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+  language            String          @default("ar")
+  agency              Agency          @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+  invitation_token    InvitationToken @relation(fields: [invitation_token_id], references: [id], onDelete: Cascade)
+  job                 Job             @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  resume              Resume          @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+
+  @@index([agency_id])
+  @@index([job_id])
+  @@index([resume_id])
+  @@index([invitation_token_id])
+}
+
+model InterviewSession {
+  id                    Int                    @id @default(autoincrement())
+  invitation_token_id   Int                    @unique
+  language              String                 @default("ar")
+  qa_log                Json
+  created_at            DateTime               @default(now())
+  updated_at            DateTime               @updatedAt
+  status                InterviewSessionStatus @default(active)
+  chunks_directory_name String?
+  agency_id             Int
+  inboxes               Inbox[]
+  agency                Agency                 @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+  invitation_token      InvitationToken        @relation(fields: [invitation_token_id], references: [id], onDelete: Cascade)
+  candidate_inboxes     CandidateInbox[]
+
+  @@index([agency_id])
+  @@index([invitation_token_id])
+}
+
+model JobApplication {
+  id           Int       @id @default(autoincrement())
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  candidate_id Int
+  job_id       Int
+  resume_id    Int       @unique
+  inboxes      Inbox[]
+  candidate    Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  job          Job       @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  resume       Resume    @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+
+  @@unique([candidate_id, job_id])
+  @@index([candidate_id])
+  @@index([job_id])
+  @@index([resume_id])
+}
+
 enum ResumeFileTypes {
   pdf
   xlsx
@@ -77,6 +636,18 @@ enum JobSeniorityLevel {
   mid_level
   senior
   lead
+}
+
+enum CandidateInboxStatus {
+  unread
+  read
+  archived
+}
+
+enum CandidateInboxType {
+  application
+  interview
+  account
 }
 
 enum jobInterviewLanguage {
@@ -165,685 +736,4 @@ enum PlanName {
   base
   pro
   enterprise
-}
-
-// --- resume.prisma ---
-model Resume {
-  id        Int             @id @default(autoincrement())
-  name      String
-  file_type ResumeFileTypes
-  link      String
-  parsed    String?
-
-  job_id Int
-  job    Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
-
-  updated_by Int?
-  updater    Account? @relation("ResumeUpdater", fields: [updated_by], references: [id])
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  auto_invited     Boolean @default(false)
-  auto_shortlisted Boolean @default(false)
-  auto_denied      Boolean @default(false)
-
-  invitation          Invitation?
-  resume_structured   ResumeStructured?
-  resume_analysis     ResumeAnalysis?
-  interview_resources InterviewResources[]
-  application         JobApplication?
-}
-
-model ResumeStructured {
-  id   Int  @id @default(autoincrement())
-  data Json
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  resume_id Int    @unique
-  resume    Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
-}
-
-model ResumeAnalysis {
-  id              Int                          @id @default(autoincrement())
-  score           Int
-  seniority_level String
-  recommendation  ResumeAnalysisRecommendation
-  insights        Json
-  createdAt       DateTime                     @default(now())
-
-  updated_by Int?
-  updater    Account? @relation("ResumeAnalysisUpdater", fields: [updated_by], references: [id])
-
-  job_id Int
-  job    Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
-
-  resume_id Int    @unique
-  resume    Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
-}
-
-// --- resume.ai.prisma ---
-model ResumeProcessingBatch {
-  id              Int                  @id @default(autoincrement())
-  ai_meta         Json?
-  input_file_link String
-  input_file_id   String               @unique
-  output_file_id  String?
-  batch_id        String?              @unique
-  status          ResumeAiBatchStatus?
-
-  inboxes Inbox[]
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-// --- agency.prisma ---
-model Account {
-  id Int @id @default(autoincrement())
-
-  email     String  @unique
-  f_name    String
-  l_name    String
-  user_name String
-  verified  Boolean @default(false)
-
-  google_id         String? @unique
-  auth_provider     String?
-  profile_image_url String?
-
-  agency_id Int?    @unique
-  agency    Agency? @relation(fields: [agency_id], references: [id], onDelete: SetNull)
-
-  credential_id Int        @unique
-  credential    Credential @relation(fields: [credential_id], references: [id], onDelete: Cascade)
-
-  tokens                Token[]
-  otps                  Otp[]
-  verify_account_tokens VerifyAccountToken[]
-
-  teamMember TeamMember? @relation("AccountTeamMember")
-
-  updated_jobs        Job[]         @relation("JobUpdater")
-  updated_job_prompts JobAiPrompt[] @relation("JobUpdater")
-  updated_job_matches JobMatch[]    @relation("JobUpdater")
-
-  updated_resumes         Resume[]         @relation("ResumeUpdater")
-  updated_resume_analyses ResumeAnalysis[] @relation("ResumeAnalysisUpdater")
-  updated_invitations     Invitation[]     @relation("InvitationUpdater")
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model Agency {
-  id                  Int     @id @default(autoincrement())
-  company_name        String?
-  organization_url    String?
-  company_size        String?
-  company_industry    String?
-  company_description String?
-  organization_id     String? @unique
-
-  account Account?
-
-  team_id Int?  @unique
-  team    Team? @relation(fields: [team_id], references: [id])
-
-  team_invitations TeamInvitation[]
-
-  jobs Job[]
-
-  invitations Invitation[]
-
-  inboxes Inbox[]
-
-  interview_resources InterviewResources[]
-
-  interview_sessions InterviewSession[]
-
-  agency_subscription AgencySubscription?
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model Credential {
-  id            Int    @id @default(autoincrement())
-  password_hash String
-
-  account Account?
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model Team {
-  id Int @id @default(autoincrement())
-
-  agency Agency?
-
-  members TeamMember[]
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model TeamMember {
-  id    Int     @id @default(autoincrement())
-  name  String?
-  email String  @unique
-  phone String? @unique
-
-  team_id Int?
-  team    Team? @relation(fields: [team_id], references: [id])
-
-  account_id Int?     @unique
-  account    Account? @relation("AccountTeamMember", fields: [account_id], references: [id])
-
-  invitations TeamInvitation[]
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model TeamInvitation {
-  id         Int      @id @default(autoincrement())
-  code       String   @unique
-  revoked    Boolean  @default(false)
-  expires_at DateTime
-
-  agency_id Int
-  agency    Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
-
-  member_id Int
-  member    TeamMember @relation(fields: [member_id], references: [id])
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model Token {
-  id            Int    @id @default(autoincrement())
-  refresh_token String
-
-  account_id Int
-  account    Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model Otp {
-  id         Int        @id @default(autoincrement())
-  code       String
-  purpose    OtpPurpose
-  expires_at DateTime
-  used_at    DateTime?
-
-  account_id Int
-  account    Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model VerifyAccountToken {
-  id         Int       @id @default(autoincrement())
-  token      String    @unique
-  expires_at DateTime
-  used_at    DateTime?
-
-  account_id Int
-  account    Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model SubscriptionPlan {
-  id   Int      @id @default(autoincrement())
-  name PlanName @unique
-
-  price Int @default(0)
-
-  interview_sessions_quota Int
-  resume_analysis_quota    Int
-  job_posting_quota        Int
-
-  agency_subscriptions AgencySubscription[]
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model AgencySubscription {
-  id Int @id @default(autoincrement())
-
-  agency_id Int    @unique
-  agency    Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
-
-  plan_id Int
-  plan    SubscriptionPlan @relation(fields: [plan_id], references: [id], onDelete: Restrict)
-
-  used_interview_sessions Int @default(0)
-  used_resume_analysis    Int @default(0)
-  used_job_posting        Int @default(0)
-
-  start_date DateTime  @default(now())
-  end_date   DateTime?
-
-  is_active Boolean @default(true)
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-// --- job.prisma ---
-model Job {
-  id                            Int               @id @default(autoincrement())
-  title                         String
-  workplace_type                JobWorkplaceType
-  employment_type               JobEmploymentType
-  seniority_level               JobSeniorityLevel
-  industry                      JobIndustry
-  location                      String
-  auto_score_matching_threshold Int?
-  auto_email_invite_threshold   Int?
-  auto_shortlisted_threshold    Int?
-  auto_denied_threshold         Int?
-  is_active                     Boolean           @default(true)
-
-  salary_currency      JobSalaryCurrency
-  salary_from          Decimal
-  salary_to            Decimal
-  is_salary_negotiable Boolean           @default(false)
-
-  description      String
-  requirements     String
-  certifications   String
-  company_overview String?
-  role_overview    String?
-  responsibilities String?
-  nice_to_have     String?
-  what_we_offer    String?
-  job_benefits     String?
-
-  soft_skills      String[]
-  technical_skills String[]
-  languages        Json[]
-
-  agency_id            Int
-  agency               Agency               @relation(fields: [agency_id], references: [id], onDelete: Cascade)
-  resumes              Resume[]
-  resume_analyses      ResumeAnalysis[]
-  inboxes              Inbox[]
-  invitations          Invitation[]
-  interview_resources  InterviewResources[]
-  job_matches          JobMatch[]
-  applications         JobApplication[]
-  candidate_saved_jobs CandidateSavedJob[]
-
-  job_ai_prompt_id Int?         @unique
-  jobAiPrompt      JobAiPrompt? @relation(fields: [job_ai_prompt_id], references: [id], onDelete: Cascade)
-
-  updated_by Int?
-  updater    Account? @relation("JobUpdater", fields: [updated_by], references: [id])
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model JobAiPrompt {
-  id         Int     @id @default(autoincrement())
-  target     String
-  prompt     String
-  evaluation Json?
-  is_active  Boolean @default(true)
-
-  job Job?
-
-  updated_by Int?
-  updater    Account? @relation("JobUpdater", fields: [updated_by], references: [id])
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model JobMatch {
-  id             Int      @id @default(autoincrement())
-  candidate_id   Int
-  job_id         Int
-  match_score    Int
-  ai_reasoning   String?  @db.Text
-  matched_skills String[]
-  missing_skills String[]
-
-  updated_by Int?
-  updater    Account? @relation("JobUpdater", fields: [updated_by], references: [id])
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
-  job       Job       @relation(fields: [job_id], references: [id], onDelete: Cascade)
-
-  @@unique([candidate_id, job_id])
-  @@index([candidate_id])
-  @@index([job_id])
-}
-
-// --- invitation.prisma ---
-model Invitation {
-  id Int @id @default(autoincrement())
-
-  to_id Int    @unique
-  to    Resume @relation(fields: [to_id], references: [id])
-
-  from_id Int
-  from    Agency @relation(fields: [from_id], references: [id])
-
-  job_id Int
-  job    Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
-
-  candidate Candidate?
-  tokens    InvitationToken[]
-
-  updated_by Int?
-  updater    Account? @relation("InvitationUpdater", fields: [updated_by], references: [id])
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model InvitationToken {
-  id         Int                   @id @default(autoincrement())
-  token      String
-  expires_at DateTime
-  revoked    Boolean               @default(false)
-  status     InvitationTokenStatus @default(valid)
-
-  invitation_id Int
-  invitation    Invitation @relation(fields: [invitation_id], references: [id])
-
-  candidate_id       Int?
-  candidate          Candidate?          @relation(fields: [candidate_id], references: [id], onDelete: SetNull)
-  interview_resource InterviewResources?
-  interview_session  InterviewSession?
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-// --- inbox.prisma ---
-model Inbox {
-  id          Int           @id @default(autoincrement())
-  type        InboxType
-  status      InboxStatus
-  severity    InboxSeverity
-  title       String
-  description String?
-
-  agency_id Int
-  agency    Agency @relation(fields: [agency_id], references: [id])
-
-  job_id Int?
-  job    Job? @relation(fields: [job_id], references: [id])
-
-  batch_id Int?
-  batch    ResumeProcessingBatch? @relation(fields: [batch_id], references: [id])
-
-  job_application_id Int?
-  job_application    JobApplication? @relation(fields: [job_application_id], references: [id])
-
-  interview_session_id Int?
-  interview_session    InterviewSession? @relation(fields: [interview_session_id], references: [id])
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-// --- candidate.prisma ---
-model Candidate {
-  id Int @id @default(autoincrement())
-
-  email          String? @unique
-  phone          String? @unique
-  candidate_name String?
-  f_name         String
-  l_name         String
-
-  verified Boolean @default(false)
-  invited  Boolean @default(false)
-
-  invitation_id Int?        @unique
-  invitation    Invitation? @relation(fields: [invitation_id], references: [id], onDelete: SetNull)
-
-  credential_id Int                 @unique
-  credential    CandidateCredential @relation(fields: [credential_id], references: [id], onDelete: Cascade)
-
-  tokens            CandidateToken[]
-  invitation_tokens InvitationToken[]
-  profile           Profile?
-  verify_tokens     CandidateVerifyToken[]
-  otps              CandidateOtp[]
-  job_matches       JobMatch[]
-  applications      JobApplication[]
-  saved_jobs        CandidateSavedJob[]
-
-  google_id     String? @unique
-  auth_provider String?
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model CandidateToken {
-  id            Int    @id @default(autoincrement())
-  refresh_token String
-
-  candidate_id Int
-  candidate    Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model CandidateVerifyToken {
-  id         Int       @id @default(autoincrement())
-  token      String    @unique
-  expires_at DateTime
-  used_at    DateTime?
-
-  candidate_id Int
-  candidate    Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model CandidateOtp {
-  id         Int        @id @default(autoincrement())
-  code       String
-  purpose    OtpPurpose
-  expires_at DateTime
-  used_at    DateTime?
-
-  candidate_id Int
-  candidate    Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model CandidateCredential {
-  id            Int    @id @default(autoincrement())
-  password_hash String
-
-  candidate Candidate?
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model Profile {
-  id            Int     @id @default(autoincrement())
-  avatar        String?
-  resume_link   String?
-  resume_parsed Json?
-
-  candidate_id Int       @unique
-  candidate    Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
-
-  headline String?
-  summary  String?
-  location String?
-
-  experiences  Experience[]
-  projects     Project[]
-  social_links SocialLinks[]
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model Experience {
-  id         Int     @id @default(autoincrement())
-  profile_id Int
-  profile    Profile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
-
-  company_name String
-  from         DateTime?
-  to           DateTime?
-  current      Boolean               @default(false)
-  role         String
-  description  String?
-  field        String
-  type         ProfileExperienceType
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model Project {
-  id         Int     @id @default(autoincrement())
-  profile_id Int
-  profile    Profile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
-
-  name        String
-  description String?
-  role        String
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-}
-
-model SocialLinks {
-  id    Int    @id @default(autoincrement())
-  key   String
-  value String
-
-  profile_id Int
-  profile    Profile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  @@unique([profile_id, key])
-  @@index([profile_id])
-}
-
-// --- interview.prisma ---
-model CandidateSavedJob {
-  id           Int      @id @default(autoincrement())
-  candidate_id Int
-  job_id       Int
-  created_at   DateTime @default(now())
-
-  candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
-  job       Job       @relation(fields: [job_id], references: [id], onDelete: Cascade)
-
-  @@unique([candidate_id, job_id])
-  @@index([candidate_id])
-  @@index([job_id])
-}
-
-model InterviewResources {
-  id Int @id @default(autoincrement())
-
-  agency_id Int
-  agency    Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
-
-  job_id Int
-  job    Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
-
-  resume_id Int
-  resume    Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
-
-  invitation_token_id Int             @unique
-  invitation_token    InvitationToken @relation(fields: [invitation_token_id], references: [id], onDelete: Cascade)
-
-  language String @default("ar")
-
-  agency_snapshot    Json
-  job_snapshot       Json
-  resume_snapshot    Json
-  prepared_questions String[]
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  @@index([agency_id])
-  @@index([job_id])
-  @@index([resume_id])
-  @@index([invitation_token_id])
-}
-
-model InterviewSession {
-  id Int @id @default(autoincrement())
-
-  agency_id Int
-  agency    Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
-
-  invitation_token_id Int             @unique
-  invitation_token    InvitationToken @relation(fields: [invitation_token_id], references: [id], onDelete: Cascade)
-
-  language              String                 @default("ar")
-  status                InterviewSessionStatus @default(active)
-  chunks_directory_name String?
-
-  qa_log Json
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  inboxes Inbox[]
-
-  @@index([agency_id])
-  @@index([invitation_token_id])
-}
-
-// --- application.prisma ---
-model JobApplication {
-  id         Int      @id @default(autoincrement())
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  candidate_id Int
-  candidate    Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
-
-  job_id Int
-  job    Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
-
-  resume_id Int    @unique
-  resume    Resume @relation(fields: [resume_id], references: [id], onDelete: Cascade)
-
-  inboxes Inbox[]
-
-  @@unique([candidate_id, job_id])
-  @@index([candidate_id])
-  @@index([job_id])
-  @@index([resume_id])
 }

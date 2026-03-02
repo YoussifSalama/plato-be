@@ -17,6 +17,7 @@ import { CandidateRequestPasswordResetDto } from "./dto/request-password-reset.d
 import { CandidateVerifyPasswordResetOtpDto } from "./dto/verify-password-reset-otp.dto";
 import { CandidateResetPasswordDto } from "./dto/reset-password.dto";
 import { CandidateChangePasswordDto } from "./dto/change-password.dto";
+import { CandidateNotificationService } from "../notification/notification.service";
 
 type ResumeStructuredData = {
     name?: string | null;
@@ -41,6 +42,7 @@ export class CandidateService {
         private readonly sendGridService: SendGridService,
         private readonly googleAuthService: GoogleAuthService,
         private readonly configService: ConfigService,
+        private readonly candidateNotificationService: CandidateNotificationService,
     ) { }
 
     private readonly logger = new Logger(CandidateService.name);
@@ -640,6 +642,9 @@ export class CandidateService {
             where: { id: candidate.credential.id },
             data: { password_hash: newHash },
         });
+
+        this.candidateNotificationService.emitAccountUpdate(candidateId, { type: 'PASSWORD_CHANGED' });
+
         return responseFormatter({ success: true }, undefined, "Password updated successfully.", 200);
     }
 

@@ -9,9 +9,10 @@ import { EmailModule } from "src/shared/services/email.module";
 import { CandidateResumeModule } from "../resume/candidate-resume.module";
 import { JobMatchingModule } from "../job-matching/job-matching.module";
 import { ApplicationModule } from "../application/application.module";
+import { CandidateNotificationModule } from "../notification/notification.module";
 
 @Module({
-    imports: [PrismaModule, EmailModule, CandidateResumeModule, JobMatchingModule, ApplicationModule],
+    imports: [PrismaModule, EmailModule, CandidateResumeModule, JobMatchingModule, ApplicationModule, CandidateNotificationModule],
     controllers: [CandidateController],
     providers: [CandidateService, BcryptService, JwtService, CandidateJwtAuthGuard],
 })
