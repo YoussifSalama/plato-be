@@ -106,7 +106,7 @@ export class JobMatchingService {
     private async saveMatches(candidateId: number, matches: MatchedJob[]) {
         if (matches.length === 0) return;
 
-        // 1. Save new matches to JobMatch table (AI scores/skills)
+        // Save new matches to JobMatch table (AI scores/skills)
         await this.prisma.jobMatch.createMany({
             data: matches.map(match => ({
                 candidate_id: candidateId,
@@ -115,15 +115,6 @@ export class JobMatchingService {
                 ai_reasoning: match.ai_reasoning || null,
                 matched_skills: match.matched_skills,
                 missing_skills: match.missing_skills,
-            })),
-            skipDuplicates: true
-        });
-
-        // 2. Auto-save new matches to CandidateSavedJob table so they appear in "Saved Jobs"
-        await this.prisma.candidateSavedJob.createMany({
-            data: matches.map(match => ({
-                candidate_id: candidateId,
-                job_id: match.id,
             })),
             skipDuplicates: true
         });
