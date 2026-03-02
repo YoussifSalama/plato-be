@@ -1,3 +1,4 @@
+import { BullModule } from "@nestjs/bullmq";
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "src/modules/prisma/prisma.module";
 import { JwtAuthGuard } from "src/shared/guards/jwt-auth.guard";
@@ -8,9 +9,14 @@ import { AgencyInterviewService } from "./interview.service";
 import { OpenAiService } from "src/shared/services/openai.service";
 
 @Module({
-    imports: [PrismaModule],
+    imports: [
+        PrismaModule,
+        BullModule.registerQueue({
+            name: "candidate_interview_generated_profile",
+        }),
+    ],
     controllers: [AgencyInterviewController],
-    providers: [AgencyInterviewService, PaginationHelper, JwtService, JwtAuthGuard,OpenAiService],
+    providers: [AgencyInterviewService, PaginationHelper, JwtService, JwtAuthGuard, OpenAiService],
 })
 export class AgencyInterviewModule { }
 

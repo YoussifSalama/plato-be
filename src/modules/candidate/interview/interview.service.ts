@@ -1,7 +1,18 @@
-import { Agency, Job, ResumeAnalysis, ResumeStructured, InvitationTokenStatus, Prisma, InterviewSessionStatus } from '@generated/prisma';
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+    Agency,
+    Job,
+    ResumeAnalysis,
+    ResumeStructured,
+    InvitationTokenStatus,
+    Prisma,
+    InterviewGeneratedProfileStatus,
+    InterviewSessionStatus
+} from '@generated/prisma';
+import { InjectQueue } from '@nestjs/bullmq';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import { Queue } from 'bullmq';
 import { PrismaService } from 'src/modules/prisma/prisma.service';
 import { SpeechService } from 'src/modules/speech/speech.service';
 import AiInterviewPrompt from 'src/shared/ai/candidate/prompts/ai.interview.prompt';
@@ -25,9 +36,11 @@ import { OpenAiKeyRotator } from 'src/shared/helpers/ai/openai-key-rotator';
 import invitationTemplate from 'src/shared/templates/invitation/Invitation.template';
 import { SendGridService } from 'src/shared/services/sendgrid.services';
 import { RandomUuidService } from 'src/shared/services/randomuuid.services';
+import AiProfilePrompt from 'src/shared/ai/candidate/ai.profile.prompt';
 
 @Injectable()
 export class InterviewService {
+    private readonly logger = new Logger(InterviewService.name);
     private readonly keyRotator: OpenAiKeyRotator;
 
     constructor(
@@ -37,7 +50,9 @@ export class InterviewService {
         private readonly inboxService: InboxService,
         private readonly configService: ConfigService,
         private readonly sendGridService: SendGridService,
-        private readonly randomUuidService: RandomUuidService
+        private readonly randomUuidService: RandomUuidService,
+        @InjectQueue('candidate_interview_generated_profile')
+        private readonly generatedProfileQueue: Queue<{ interviewSessionId: number }>
     ) {
         const apiKeys = this.configService.get<string[]>("env.openai.apiKeys") ?? [];
         if (!apiKeys.length) throw new Error("No OpenAI API keys configured.");
@@ -874,6 +889,21 @@ export class InterviewService {
             throw new BadRequestException("Interview session not found.");
         }
         if (session.status === InterviewSessionStatus.completed) {
+            if (session.generated_profile_status === InterviewGeneratedProfileStatus.not_started) {
+                await this.prisma.interviewSession.update({
+                    where: { id: interviewSessionId },
+                    data: {
+                        generated_profile_status: InterviewGeneratedProfileStatus.queued,
+                        generated_profile_error: null,
+                    },
+                });
+                this.enqueueGeneratedProfileJob(interviewSessionId).catch((error) => {
+                    this.logger.error(
+                        `Failed to enqueue generated profile for session=${interviewSessionId}`,
+                        error instanceof Error ? error.stack : undefined
+                    );
+                });
+            }
             return session;
         }
         if (session.status === InterviewSessionStatus.cancelled) {
@@ -882,7 +912,11 @@ export class InterviewService {
         const [updatedSession] = await this.prisma.$transaction([
             this.prisma.interviewSession.update({
                 where: { id: interviewSessionId },
-                data: { status: InterviewSessionStatus.completed },
+                data: {
+                    status: InterviewSessionStatus.completed,
+                    generated_profile_status: InterviewGeneratedProfileStatus.queued,
+                    generated_profile_error: null,
+                },
             }),
             this.prisma.invitationToken.update({
                 where: { id: session.invitation_token_id },
@@ -891,8 +925,167 @@ export class InterviewService {
         ]);
 
         await this.notifyInterviewStatus(updatedSession.id, InterviewSessionStatus.completed);
+        this.enqueueGeneratedProfileJob(updatedSession.id).catch((error) => {
+            this.logger.error(
+                `Failed to enqueue generated profile for session=${updatedSession.id}`,
+                error instanceof Error ? error.stack : undefined
+            );
+        });
 
         return updatedSession;
+    }
+
+    async getGeneratedProfile(interviewSessionId: number) {
+        const session = await this.prisma.interviewSession.findUnique({
+            where: { id: interviewSessionId },
+            select: {
+                id: true,
+                status: true,
+                generated_profile_status: true,
+                generated_profile: true,
+                generated_profile_error: true,
+                generated_profile_generated_at: true,
+                updated_at: true,
+            },
+        });
+        if (!session) {
+            throw new BadRequestException("Interview session not found.");
+        }
+        return responseFormatter(
+            {
+                interview_session_id: session.id,
+                interview_status: session.status,
+                generated_profile_status: session.generated_profile_status,
+                generated_profile: session.generated_profile,
+                generated_profile_error: session.generated_profile_error,
+                generated_profile_generated_at: session.generated_profile_generated_at,
+                updated_at: session.updated_at,
+            },
+            null,
+            "Generated profile status retrieved.",
+            200
+        );
+    }
+
+    async processGeneratedProfile(interviewSessionId: number) {
+        const session = await this.prisma.interviewSession.findUnique({
+            where: { id: interviewSessionId },
+            include: {
+                invitation_token: {
+                    include: {
+                        invitation: {
+                            include: { job: true, from: true }
+                        },
+                        interview_resource: true,
+                    },
+                },
+            },
+        });
+        if (!session) {
+            this.logger.warn(`Generated profile skipped: session=${interviewSessionId} not found`);
+            return;
+        }
+        if (session.status !== InterviewSessionStatus.completed) {
+            this.logger.warn(`Generated profile skipped: session=${interviewSessionId} is not completed`);
+            return;
+        }
+
+        await this.prisma.interviewSession.update({
+            where: { id: interviewSessionId },
+            data: {
+                generated_profile_status: InterviewGeneratedProfileStatus.processing,
+                generated_profile_error: null,
+            },
+        });
+
+        const resumePayload = session.invitation_token?.interview_resource?.resume_snapshot ?? null;
+        const agencyPayload = session.invitation_token?.interview_resource?.agency_snapshot ?? null;
+        const jobPayload = session.invitation_token?.interview_resource?.job_snapshot ?? null;
+        const qaLog = this.normalizeQaLog(session.qa_log);
+        const transcriptPayload = qaLog.length
+            ? qaLog
+                .map((entry, index) =>
+                    `Q${index + 1}: ${entry.question || ""}\nA${index + 1}: ${entry.answer || ""}`
+                )
+                .join("\n\n")
+            : null;
+        const closeCancelCount = session.close_without_confirm_cancel_count ?? 0;
+        const closePostponeCount = session.close_without_confirm_postpone_count ?? 0;
+
+        const analystPrompt = AiProfilePrompt();
+
+        const userPayload = JSON.stringify(
+            {
+                resume: resumePayload,
+                agency: agencyPayload,
+                job: jobPayload,
+                transcript: transcriptPayload,
+                session_meta: {
+                    close_without_confirm_cancel_count: closeCancelCount,
+                    close_without_confirm_postpone_count: closePostponeCount,
+                },
+            },
+            null,
+            2
+        );
+
+        try {
+            const completion = await this.getOpenAiClient().chat.completions.create({
+                model: "gpt-4o-mini",
+                messages: [
+                    { role: "system", content: analystPrompt },
+                    { role: "user", content: userPayload },
+                ],
+                response_format: { type: "json_object" },
+                temperature: 0.1,
+            });
+
+            const raw = completion.choices?.[0]?.message?.content?.trim() ?? "";
+            let parsed: unknown = null;
+            try {
+                parsed = JSON.parse(raw);
+            } catch {
+                throw new Error("Invalid JSON returned from generated profile model.");
+            }
+
+            await this.prisma.interviewSession.update({
+                where: { id: interviewSessionId },
+                data: {
+                    generated_profile_status: InterviewGeneratedProfileStatus.completed,
+                    generated_profile: parsed as Prisma.InputJsonValue,
+                    generated_profile_error: null,
+                    generated_profile_generated_at: new Date(),
+                },
+            });
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : "Unknown generated profile processing error.";
+            await this.prisma.interviewSession.update({
+                where: { id: interviewSessionId },
+                data: {
+                    generated_profile_status: InterviewGeneratedProfileStatus.failed,
+                    generated_profile_error: message,
+                },
+            });
+            throw error;
+        }
+    }
+
+    private async enqueueGeneratedProfileJob(interviewSessionId: number) {
+        await this.generatedProfileQueue.add(
+            "candidate-generated-profile",
+            { interviewSessionId },
+            {
+                jobId: `candidate-generated-profile-${interviewSessionId}`,
+                attempts: 2,
+                removeOnComplete: true,
+                removeOnFail: false,
+                backoff: {
+                    type: "exponential",
+                    delay: 1000,
+                },
+            }
+        );
     }
 
     async postponeInterviewSession(
@@ -1159,6 +1352,43 @@ export class InterviewService {
         return qaLog;
     }
 
+    async trackModalDismissed(
+        interviewSessionId: number,
+        modalType: "cancel" | "postpone"
+    ) {
+        if (!Number.isFinite(interviewSessionId) || interviewSessionId <= 0) {
+            throw new BadRequestException("Invalid interview session id.");
+        }
+
+        const session = await this.prisma.interviewSession.findUnique({
+            where: { id: interviewSessionId },
+            select: { id: true, status: true },
+        });
+        if (!session) {
+            throw new BadRequestException("Interview session not found.");
+        }
+        if (session.status !== InterviewSessionStatus.active) {
+            throw new BadRequestException("Only active interview sessions can track dismiss events.");
+        }
+
+        const data =
+            modalType === "cancel"
+                ? { close_without_confirm_cancel_count: { increment: 1 } }
+                : { close_without_confirm_postpone_count: { increment: 1 } };
+
+        await this.prisma.interviewSession.update({
+            where: { id: interviewSessionId },
+            data,
+        });
+
+        return responseFormatter(
+            { interview_session_id: interviewSessionId, modal_type: modalType, tracked: true },
+            null,
+            "Modal dismiss event tracked.",
+            200
+        );
+    }
+
     async createRealtimeSession(model = "gpt-4o-realtime-preview", voice = "ash") {
         const apiKey = this.keyRotator.next();
         if (!apiKey) {
@@ -1385,7 +1615,15 @@ export class InterviewService {
                 data: {
                     qa_log: qaLog as unknown as Prisma.InputJsonValue,
                     status: InterviewSessionStatus.completed,
+                    generated_profile_status: InterviewGeneratedProfileStatus.queued,
+                    generated_profile_error: null,
                 },
+            });
+            this.enqueueGeneratedProfileJob(session.id).catch((error) => {
+                this.logger.error(
+                    `Failed to enqueue generated profile for session=${session.id}`,
+                    error instanceof Error ? error.stack : undefined
+                );
             });
             return {
                 combined_file_path: combinedFilePath,

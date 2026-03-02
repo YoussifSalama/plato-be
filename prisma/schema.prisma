@@ -160,6 +160,14 @@ enum InterviewSessionStatus{
     postponed
 }
 
+enum InterviewGeneratedProfileStatus{
+    not_started
+    queued
+    processing
+    completed
+    failed
+}
+
 // --- resume.prisma ---
 model Resume {
   id        Int             @id @default(autoincrement())
@@ -751,6 +759,12 @@ model InterviewSession{
     language String @default("ar")
     status InterviewSessionStatus @default(active)
     chunks_directory_name String?
+    generated_profile_status InterviewGeneratedProfileStatus @default(not_started)
+    generated_profile Json?
+    generated_profile_error String?
+    generated_profile_generated_at DateTime?
+    close_without_confirm_cancel_count Int @default(0)
+    close_without_confirm_postpone_count Int @default(0)
 
     qa_log Json
 

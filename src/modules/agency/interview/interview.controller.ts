@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Param, ParseIntPipe, Query, Req, UseGuards } from "@nestjs/common";
+import { BadRequestException, Controller, Get, Param, ParseIntPipe, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { JwtAuthGuard } from "src/shared/guards/jwt-auth.guard";
 import { AgencyInterviewService } from "./interview.service";
@@ -53,6 +53,21 @@ export class AgencyInterviewController {
             throw new BadRequestException("Invalid user");
         }
         return this.interviewService.getInterviewSessionDetails(id, userId);
+    }
+
+    @Post("sessions/:id/generate-profile")
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth("access-token")
+    @ApiOperation({ summary: "Trigger generated profile for completed interview session" })
+    async generateProfileNow(
+        @Param("id", ParseIntPipe) id: number,
+        @Req() req: { user?: { id: number } }
+    ) {
+        const userId = req.user?.id;
+        if (!userId) {
+            throw new BadRequestException("Invalid user");
+        }
+        return this.interviewService.generateProfileNow(id, userId);
     }
 }
 

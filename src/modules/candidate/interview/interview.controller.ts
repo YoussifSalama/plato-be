@@ -9,6 +9,7 @@ import { StartInterviewDto } from "./dto/start-interview.dto";
 import { CompleteInterviewDto } from "./dto/complete-interview.dto";
 import { PostponeInterviewDto } from "./dto/postpone-interview.dto";
 import { RealtimeMetricsDto } from "./dto/realtime-metrics.dto";
+import { ModalDismissedDto } from "./dto/modal-dismissed.dto";
 
 @ApiTags("Interview")
 @Controller("interview")
@@ -158,6 +159,27 @@ export class InterviewController {
         }
     }
 
+    @Get("generated-profile/:interviewSessionId")
+    @ApiOperation({ summary: "Get generated candidate profile for interview session" })
+    @ApiParam({ name: "interviewSessionId", example: 123 })
+    async getGeneratedProfile(@Param("interviewSessionId") interviewSessionId: string) {
+        const startedAt = Date.now();
+        this.logger.log(`generated-profile.start session=${interviewSessionId}`);
+        try {
+            const result = await this.interviewService.getGeneratedProfile(Number(interviewSessionId));
+            this.logger.log(
+                `generated-profile.done session=${interviewSessionId} ms=${Date.now() - startedAt}`
+            );
+            return result;
+        } catch (error) {
+            this.logger.error(
+                `generated-profile.failed session=${interviewSessionId} ms=${Date.now() - startedAt}`,
+                error instanceof Error ? error.stack : undefined
+            );
+            throw error;
+        }
+    }
+
     @Post("postpone")
     @ApiOperation({ summary: "Postpone interview session" })
     async postponeInterview(@Body() body: PostponeInterviewDto) {
@@ -201,6 +223,31 @@ export class InterviewController {
         } catch (error) {
             this.logger.error(
                 `qa-log.failed session=${body.interview_session_id} ms=${Date.now() - startedAt}`,
+                error instanceof Error ? error.stack : undefined
+            );
+            throw error;
+        }
+    }
+
+    @Post("modal-dismissed")
+    @ApiOperation({ summary: "Track cancel/postpone modal close without confirmation" })
+    async trackModalDismissed(@Body() body: ModalDismissedDto) {
+        const startedAt = Date.now();
+        this.logger.log(
+            `modal-dismissed.start session=${body.interview_session_id} type=${body.modal_type}`
+        );
+        try {
+            const result = await this.interviewService.trackModalDismissed(
+                body.interview_session_id,
+                body.modal_type
+            );
+            this.logger.log(
+                `modal-dismissed.done session=${body.interview_session_id} ms=${Date.now() - startedAt}`
+            );
+            return result;
+        } catch (error) {
+            this.logger.error(
+                `modal-dismissed.failed session=${body.interview_session_id} ms=${Date.now() - startedAt}`,
                 error instanceof Error ? error.stack : undefined
             );
             throw error;

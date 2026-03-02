@@ -1,5 +1,7 @@
+import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable } from "@nestjs/common";
-import { Prisma, InterviewSessionStatus } from "@generated/prisma";
+import { InterviewGeneratedProfileStatus, InterviewSessionStatus, Prisma } from "@generated/prisma";
+import { Queue } from "bullmq";
 import { PrismaService } from "src/modules/prisma/prisma.service";
 import { PaginationHelper } from "src/shared/helpers/features/pagination";
 import responseFormatter from "src/shared/helpers/response";
@@ -10,7 +12,9 @@ import { GetInterviewStatsDto } from "./dto/get-interview-stats.dto";
 export class AgencyInterviewService {
     constructor(
         private readonly prisma: PrismaService,
-        private readonly paginationHelper: PaginationHelper
+        private readonly paginationHelper: PaginationHelper,
+        @InjectQueue("candidate_interview_generated_profile")
+        private readonly generatedProfileQueue: Queue<{ interviewSessionId: number }>
     ) { }
 
     async getInterviewSessions(options: GetInterviewSessionsDto, userId: number) {
@@ -292,6 +296,15 @@ export class AgencyInterviewService {
                                         file_type: true,
                                         created_at: true,
                                         updated_at: true,
+                                        resume_analysis: {
+                                            select: {
+                                                score: true,
+                                                seniority_level: true,
+                                                recommendation: true,
+                                                insights: true,
+                                                createdAt: true,
+                                            },
+                                        },
                                     },
                                 },
                             },
@@ -317,6 +330,10 @@ export class AgencyInterviewService {
                 id: session.id,
                 status: session.status,
                 language: session.language,
+                generated_profile_status: session.generated_profile_status,
+                generated_profile: session.generated_profile,
+                generated_profile_error: session.generated_profile_error,
+                generated_profile_generated_at: session.generated_profile_generated_at,
                 created_at: session.created_at,
                 updated_at: session.updated_at,
                 invitation_token: token
@@ -340,6 +357,85 @@ export class AgencyInterviewService {
             },
             null,
             "Interview session retrieved.",
+            200
+        );
+    }
+
+    async generateProfileNow(sessionId: number, userId: number) {
+        const session = await this.prisma.interviewSession.findFirst({
+            where: {
+                id: sessionId,
+                agency: {
+                    account: {
+                        is: { id: userId },
+                    },
+                },
+            },
+            select: {
+                id: true,
+                status: true,
+                generated_profile_status: true,
+            },
+        });
+
+        if (!session) {
+            return responseFormatter(null, null, "Interview session not found.", 404);
+        }
+
+        if (session.status !== InterviewSessionStatus.completed) {
+            return responseFormatter(
+                null,
+                null,
+                "Generated profile can only be triggered for completed interviews.",
+                400
+            );
+        }
+
+        if (
+            session.generated_profile_status === InterviewGeneratedProfileStatus.queued ||
+            session.generated_profile_status === InterviewGeneratedProfileStatus.processing
+        ) {
+            return responseFormatter(
+                {
+                    interview_session_id: session.id,
+                    generated_profile_status: session.generated_profile_status,
+                },
+                null,
+                "Generated profile is already in progress.",
+                200
+            );
+        }
+
+        await this.prisma.interviewSession.update({
+            where: { id: session.id },
+            data: {
+                generated_profile_status: InterviewGeneratedProfileStatus.queued,
+                generated_profile_error: null,
+            },
+        });
+
+        await this.generatedProfileQueue.add(
+            "candidate-generated-profile",
+            { interviewSessionId: session.id },
+            {
+                jobId: `candidate-generated-profile-${session.id}`,
+                attempts: 2,
+                removeOnComplete: true,
+                removeOnFail: false,
+                backoff: {
+                    type: "exponential",
+                    delay: 1000,
+                },
+            }
+        );
+
+        return responseFormatter(
+            {
+                interview_session_id: session.id,
+                generated_profile_status: InterviewGeneratedProfileStatus.queued,
+            },
+            null,
+            "Generated profile queued successfully.",
             200
         );
     }

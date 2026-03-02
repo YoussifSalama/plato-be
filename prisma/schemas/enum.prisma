@@ -147,3 +147,11 @@ enum InterviewSessionStatus{
     cancelled
     postponed
 }
+
+enum InterviewGeneratedProfileStatus{
+    not_started
+    queued
+    processing
+    completed
+    failed
+}

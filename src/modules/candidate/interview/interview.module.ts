@@ -1,3 +1,4 @@
+import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { PrismaModule } from 'src/modules/prisma/prisma.module';
 import { JwtService } from 'src/shared/services/jwt.services';
@@ -11,10 +12,28 @@ import { InboxModule } from 'src/modules/agency/inbox/inbox.module';
 import { OpenAiService } from 'src/shared/services/openai.service';
 import { EmailModule } from 'src/shared/services/email.module';
 import { RandomUuidService } from 'src/shared/services/randomuuid.services';
+import { CandidateGeneratedProfileWorker } from './interview.generated-profile.worker';
 
 @Module({
-  imports: [PrismaModule, SpeechModule, InboxModule, EmailModule],
+  imports: [
+    PrismaModule,
+    SpeechModule,
+    InboxModule,
+    EmailModule,
+    BullModule.registerQueue({
+      name: 'candidate_interview_generated_profile',
+    }),
+  ],
   controllers: [InterviewController],
-  providers: [InterviewService, InterviewGateway, JwtService, CandidateJwtAuthGuard, PaginationHelper, OpenAiService, RandomUuidService],
+  providers: [
+    InterviewService,
+    InterviewGateway,
+    JwtService,
+    CandidateJwtAuthGuard,
+    PaginationHelper,
+    OpenAiService,
+    RandomUuidService,
+    CandidateGeneratedProfileWorker,
+  ],
 })
 export class InterviewModule { }
