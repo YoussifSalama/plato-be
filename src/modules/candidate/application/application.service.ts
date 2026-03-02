@@ -1,9 +1,12 @@
 import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from 'src/modules/prisma/prisma.service';
-import { ResumeFileTypes } from '@generated/prisma';
+import { Prisma, ResumeFileTypes } from '@generated/prisma';
 import { InboxService } from 'src/modules/agency/inbox/inbox.service';
 import { ResumeProducer } from 'src/queues/agency/resume/resume.producer';
 import { CandidateNotificationService } from '../notification/notification.service';
+import { PaginationHelper } from 'src/shared/helpers/features/pagination';
+import { paginationDto } from 'src/shared/dto/pagination.dto';
+import responseFormatter from 'src/shared/helpers/response';
 
 @Injectable()
 export class ApplicationService {
@@ -11,8 +14,74 @@ export class ApplicationService {
         private readonly prisma: PrismaService,
         private readonly inboxService: InboxService,
         private readonly resumeProducer: ResumeProducer,
-        private readonly candidateNotificationService: CandidateNotificationService
+        private readonly candidateNotificationService: CandidateNotificationService,
+        private readonly paginationHelper: PaginationHelper
     ) { }
+
+    async getAppliedJobs(candidateId: number, query: paginationDto) {
+        const filterObject: Prisma.JobApplicationWhereInput = {
+            candidate_id: candidateId
+        };
+
+        const pagination = await this.paginationHelper.applyPagination(query);
+
+        const applications = await this.prisma.jobApplication.findMany({
+            where: filterObject,
+            orderBy: { created_at: Prisma.SortOrder.desc },
+            ...pagination,
+            include: {
+                job: {
+                    select: {
+                        id: true,
+                        title: true,
+                        location: true,
+                        employment_type: true,
+                        workplace_type: true,
+                        agency: {
+                            select: {
+                                company_name: true,
+                                account: {
+                                    select: {
+                                        profile_image_url: true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Format the response structure to make it flatter and easier for the frontend
+        const formattedApplications = applications.map(app => {
+            const { job, ...applicationDetails } = app;
+            return {
+                ...applicationDetails,
+                job: {
+                    id: job.id,
+                    title: job.title,
+                    location: job.location,
+                    employment_type: job.employment_type,
+                    workplace_type: job.workplace_type,
+                    company_name: job.agency.company_name,
+                    company_logo: job.agency.account?.profile_image_url || null
+                }
+            };
+        });
+
+        const paginationMeta = await this.paginationHelper.generatePaginationMeta(
+            query,
+            Prisma.ModelName.JobApplication,
+            filterObject
+        );
+
+        return responseFormatter(
+            formattedApplications,
+            paginationMeta,
+            "Applied jobs fetched successfully",
+            200
+        );
+    }
 
     async apply(candidateId: number, jobId: number) {
         // 1. Fetch Job and check existence

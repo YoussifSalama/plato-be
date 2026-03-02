@@ -104,12 +104,9 @@ export class JobMatchingService {
     }
 
     private async saveMatches(candidateId: number, matches: MatchedJob[]) {
-        // Delete existing matches for this candidate
-        await this.prisma.jobMatch.deleteMany({
-            where: { candidate_id: candidateId }
-        });
+        if (matches.length === 0) return;
 
-        // Save new matches
+        // 1. Save new matches to JobMatch table (AI scores/skills)
         await this.prisma.jobMatch.createMany({
             data: matches.map(match => ({
                 candidate_id: candidateId,
@@ -118,21 +115,27 @@ export class JobMatchingService {
                 ai_reasoning: match.ai_reasoning || null,
                 matched_skills: match.matched_skills,
                 missing_skills: match.missing_skills,
-            }))
+            })),
+            skipDuplicates: true
+        });
+
+        // 2. Auto-save new matches to CandidateSavedJob table so they appear in "Saved Jobs"
+        await this.prisma.candidateSavedJob.createMany({
+            data: matches.map(match => ({
+                candidate_id: candidateId,
+                job_id: match.id,
+            })),
+            skipDuplicates: true
         });
     }
 
     async refreshMatches(candidateId: number) {
         this.logger.log(`Refreshing job matches for candidate ${candidateId}`);
         const matches = await this.computeMatches(candidateId);
-        // Note: saveMatches expects MatchedJob which now has has_applied, 
-        // but prisma create doesn't need has_applied. 
-        // The saveMatches function maps the input carefully so it ignores extra fields if not destructured,
-        // but let's check the map inside saveMatches.
-        // It uses: job_id: match.id, match_score: match.match_score... 
-        // It does NOT try to save has_applied to JobMatch table (which is correct).
         await this.saveMatches(candidateId, matches);
-        return matches;
+
+        // Return ALL matches (old + new) so frontend displays the full list
+        return this.getSavedMatches(candidateId);
     }
 
     private async computeMatches(candidateId: number): Promise<MatchedJob[]> {
@@ -159,10 +162,17 @@ export class JobMatchingService {
 
         const candidateLocation = profile.location?.toLowerCase().trim();
 
-        // 2. Fetch Active Jobs
+        // 2. Fetch Active Jobs (Exclude jobs that are already matched for this candidate)
+        const existingMatches = await this.prisma.jobMatch.findMany({
+            where: { candidate_id: candidateId },
+            select: { job_id: true }
+        });
+        const matchedIds = existingMatches.map(m => m.job_id);
+
         const jobs = await this.prisma.job.findMany({
             where: {
                 is_active: true,
+                id: { notIn: matchedIds }
             },
             include: {
                 agency: {
