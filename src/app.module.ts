@@ -20,6 +20,7 @@ import { ProfileModule } from "./modules/candidate/profile/profile.module";
 import { TeamModule } from './modules/agency/team/team.module';
 import { SharedModule } from "./shared/shared.module";
 import { AiCallModule } from "./queues/agency/ai-call/ai-call.module";
+import { StripeModule } from "./modules/stripe/stripe.module";
 
 @Module({
   imports: [
@@ -46,7 +47,8 @@ import { AiCallModule } from "./queues/agency/ai-call/ai-call.module";
     SpeechModule,
     ProfileModule,
     TeamModule,
-    SharedModule
+    SharedModule,
+    StripeModule,
   ],
   providers: [],
 })

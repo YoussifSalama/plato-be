@@ -21,6 +21,7 @@ import { UpgradeSubscriptionDto } from './dto/upgrade-subscription.dto';
 import { IJwtProvider } from 'src/shared/types/services/jwt.types';
 import { ConfigService } from '@nestjs/config';
 import { GoogleAuthService } from 'src/shared/services/google-auth.service';
+import { StripeService } from 'src/modules/stripe/stripe.service';
 
 @Injectable()
 export class AgencyService {
@@ -33,6 +34,7 @@ export class AgencyService {
         private readonly jwtService: JwtService,
         private readonly configService: ConfigService,
         private readonly googleAuthService: GoogleAuthService,
+        private readonly stripeService: StripeService,
     ) { }
 
     private getFrontendBaseUrl() {
@@ -905,14 +907,18 @@ export class AgencyService {
     }
 
     async upgradeSubscription(accountId: number, dto: UpgradeSubscriptionDto) {
+        throw new BadRequestException("This endpoint is deprecated. Use create-checkout-session instead.");
+    }
+
+    async createCheckoutSession(accountId: number, dto: UpgradeSubscriptionDto) {
         const account = await this.prisma.account.findUnique({
             where: { id: accountId },
-            select: { agency_id: true, teamMember: { select: { team: { select: { agency: { select: { id: true } } } } } } },
+            select: { email: true, agency_id: true, teamMember: { select: { team: { select: { agency: { select: { id: true } } } } } } },
         });
 
         const agencyId = account?.teamMember?.team?.agency?.id ?? (account?.agency_id ?? null);
-        if (!agencyId) {
-            throw new BadRequestException("Agency not found.");
+        if (!agencyId || !account) {
+            throw new BadRequestException("Agency or account not found.");
         }
 
         const plan = await (this.prisma as any).subscriptionPlan.findUnique({
@@ -923,26 +929,23 @@ export class AgencyService {
             throw new BadRequestException("Plan not found. Please provide a valid plan ID.");
         }
 
-        const now = new Date();
-        const endDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        const frontendUrl = this.configService.get<string>('env.frontendUrl') || 'http://localhost:3001';
+        // These URLs should point to a success or cancel page on your frontend
+        const successUrl = `${frontendUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`;
+        const cancelUrl = `${frontendUrl}/billing/cancel`;
 
-        const subscription = await (this.prisma as any).agencySubscription.update({
-            where: { agency_id: agencyId },
-            data: {
-                plan_id: plan.id,
-                used_interview_sessions: 0,
-                used_resume_analysis: 0,
-                used_job_posting: 0,
-                start_date: now,
-                end_date: endDate,
-            },
-            include: { plan: true },
-        });
+        const { url } = await this.stripeService.createCheckoutSession(
+            agencyId,
+            plan.id,
+            successUrl,
+            cancelUrl,
+            account.email
+        );
 
         return responseFormatter(
-            subscription,
+            { url },
             undefined,
-            "Successfully upgraded subscription plan. Quotas have been reset limit and plan duration extended by 30 days.",
+            "Checkout session created successfully.",
             200
         );
     }

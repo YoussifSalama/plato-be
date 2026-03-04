@@ -35,4 +35,8 @@ export interface IEnvParams {
   };
   frontendUrl: string;
   frontendUrlCandidate: string;
+  stripe: {
+    secretKey: string;
+    webhookSecret: string;
+  };
 }

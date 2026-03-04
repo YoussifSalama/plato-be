@@ -44,5 +44,9 @@ export default registerAs(
         },
         frontendUrl: process.env.FRONTEND_URL ?? '',
         frontendUrlCandidate: process.env.FRONTEND_URL_CANDIDATE ?? '',
+        stripe: {
+            secretKey: process.env.STRIPE_SECRET_KEY ?? '',
+            webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? '',
+        },
     }),
 );

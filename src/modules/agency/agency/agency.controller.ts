@@ -150,12 +150,12 @@ export class AgencyController {
         return this.agencyService.getSubscription(req.user.id);
     }
 
-    @Post('subscription/upgrade')
+    @Post('subscription/create-checkout-session')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: "Resubscribe or upgrade to a plan, resetting the quotas and extending the billing period" })
-    async upgradeSubscription(@Req() req: { user: AccessTokenPayload }, @Body() body: UpgradeSubscriptionDto) {
-        return this.agencyService.upgradeSubscription(req.user.id, body);
+    @ApiOperation({ summary: "Create a Stripe checkout session to resubscribe or upgrade to a plan" })
+    async createCheckoutSession(@Req() req: { user: AccessTokenPayload }, @Body() body: UpgradeSubscriptionDto) {
+        return this.agencyService.createCheckoutSession(req.user.id, body);
     }
 
     @Get('subscription/plans')

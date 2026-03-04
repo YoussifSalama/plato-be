@@ -21,7 +21,9 @@ import { AgencyApplicationModule } from "./modules/agency/application/applicatio
 import { TeamModule } from "./modules/agency/team/team.module";
 import { AgencyInterviewModule } from "./modules/agency/interview/interview.module";
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+  });
   app.enableCors();
   if (process.env.WEBSOCKET_REDIS_ADAPTER === "true") {
     const redisPortValue = Number(process.env.REDIS_PORT);
