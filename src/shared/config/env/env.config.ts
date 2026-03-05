@@ -44,5 +44,10 @@ export default registerAs(
         },
         frontendUrl: process.env.FRONTEND_URL ?? '',
         frontendUrlCandidate: process.env.FRONTEND_URL_CANDIDATE ?? '',
+        elevenlabs: {
+            apiKey: process.env.ELEVENLABS_API_KEY ?? '',
+            agentId: process.env.ELEVENLABS_AGENT_ID ?? '',
+            webhookSecret: process.env.ELEVENLABS_WEBHOOK_SECRET ?? '',
+        },
     }),
 );

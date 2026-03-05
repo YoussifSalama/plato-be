@@ -37,6 +37,7 @@ import invitationTemplate from 'src/shared/templates/invitation/Invitation.templ
 import { SendGridService } from 'src/shared/services/sendgrid.services';
 import { RandomUuidService } from 'src/shared/services/randomuuid.services';
 import AiProfilePrompt from 'src/shared/ai/candidate/ai.profile.prompt';
+import { RealtimeMetricsDto } from './dto/realtime-metrics.dto';
 
 @Injectable()
 export class InterviewService {
@@ -71,6 +72,13 @@ export class InterviewService {
         } catch {
             return rawUrl.replace(/\/+$/, "");
         }
+    }
+
+    private toPrismaJsonValue(value: unknown): Prisma.JsonValue {
+        if (value === undefined) {
+            return null;
+        }
+        return JSON.parse(JSON.stringify(value)) as Prisma.JsonValue;
     }
 
     private extractEmailFromResumeStructured(data: unknown): string | null {
@@ -1387,6 +1395,67 @@ export class InterviewService {
             "Modal dismiss event tracked.",
             200
         );
+    }
+
+    async recordRealtimeMetrics(body: RealtimeMetricsDto) {
+        if (!body.interview_session_id) {
+            return;
+        }
+        const session = await this.prisma.interviewSession.findUnique({
+            where: { id: body.interview_session_id },
+            select: { id: true, qa_log: true },
+        });
+        if (!session) {
+            return;
+        }
+        const existingLog = Array.isArray(session.qa_log) ? [...session.qa_log] : [];
+        existingLog.push({
+            event: "realtime_metrics",
+            happened_at: new Date().toISOString(),
+            payload: this.toPrismaJsonValue(body),
+        });
+        await this.prisma.interviewSession.update({
+            where: { id: session.id },
+            data: { qa_log: existingLog as unknown as Prisma.InputJsonValue },
+        });
+    }
+
+    async processElevenLabsPostCallWebhook(params: {
+        payload: Record<string, unknown>;
+        interviewSessionId?: number | null;
+    }) {
+        const interviewSessionId = params.interviewSessionId ?? null;
+        if (!interviewSessionId) {
+            return;
+        }
+
+        const session = await this.prisma.interviewSession.findUnique({
+            where: { id: interviewSessionId },
+            select: { id: true, qa_log: true },
+        });
+        if (!session) {
+            return;
+        }
+
+        const existingLog = Array.isArray(session.qa_log) ? [...session.qa_log] : [];
+        const eventType =
+            typeof params.payload.type === "string" ? params.payload.type : "unknown_post_call_event";
+        const payloadData =
+            params.payload && typeof params.payload === "object" && "data" in params.payload
+                ? (params.payload as { data?: unknown }).data
+                : params.payload;
+
+        existingLog.push({
+            event: "elevenlabs_post_call_webhook",
+            webhook_type: eventType,
+            happened_at: new Date().toISOString(),
+            data: this.toPrismaJsonValue(payloadData),
+        });
+
+        await this.prisma.interviewSession.update({
+            where: { id: session.id },
+            data: { qa_log: existingLog as unknown as Prisma.InputJsonValue },
+        });
     }
 
     async createRealtimeSession(model = "gpt-4o-realtime-preview", voice = "ash") {

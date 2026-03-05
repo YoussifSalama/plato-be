@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiTags } from "@nestj
 import { CandidateJwtAuthGuard } from "src/shared/guards/candidate-jwt-auth.guard";
 import { AccessTokenPayload } from "src/shared/types/services/jwt.types";
 import { InterviewService } from "./interview.service";
+import { ElevenLabsService } from "./elevenlabs.service";
 import { CancelInterviewDto } from "./dto/cancel-interview.dto";
 import { AppendQaLogDto } from "./dto/append-qa-log.dto";
 import { StartInterviewDto } from "./dto/start-interview.dto";
@@ -10,13 +11,21 @@ import { CompleteInterviewDto } from "./dto/complete-interview.dto";
 import { PostponeInterviewDto } from "./dto/postpone-interview.dto";
 import { RealtimeMetricsDto } from "./dto/realtime-metrics.dto";
 import { ModalDismissedDto } from "./dto/modal-dismissed.dto";
+import { ElevenLabsSignedUrlDto } from "./dto/elevenlabs-signed-url.dto";
+import {
+    extractInterviewSessionIdFromWebhookPayload,
+    verifyElevenLabsWebhookSignature,
+} from "./elevenlabs-webhook.util";
 
 @ApiTags("Interview")
 @Controller("interview")
 export class InterviewController {
     private readonly logger = new Logger(InterviewController.name);
 
-    constructor(private readonly interviewService: InterviewService) { }
+    constructor(
+        private readonly interviewService: InterviewService,
+        private readonly elevenLabsService: ElevenLabsService
+    ) {}
 
     @Get()
     @ApiBearerAuth("access-token")
@@ -282,6 +291,30 @@ export class InterviewController {
         }
     }
 
+    @Post("elevenlabs-signed-url")
+    @ApiOperation({ summary: "Get ElevenLabs signed WebSocket URL" })
+    async getElevenLabsSignedUrl(@Body() body: ElevenLabsSignedUrlDto) {
+        const startedAt = Date.now();
+        this.logger.log(
+            `elevenlabs-signed-url.start agent=${body.agent_id ?? "default"} session=${body.interview_session_id ?? "none"}`
+        );
+        try {
+            const result = await this.elevenLabsService.getSignedUrl({
+                agentId: body.agent_id,
+                includeConversationId: body.include_conversation_id,
+                interviewSessionId: body.interview_session_id,
+            });
+            this.logger.log(`elevenlabs-signed-url.done ms=${Date.now() - startedAt}`);
+            return result;
+        } catch (error) {
+            this.logger.error(
+                `elevenlabs-signed-url.failed ms=${Date.now() - startedAt}`,
+                error instanceof Error ? error.stack : undefined
+            );
+            throw error;
+        }
+    }
+
     @Post("realtime/metrics")
     @ApiOperation({ summary: "Collect realtime interview quality metrics" })
     async collectRealtimeMetrics(@Body() body: RealtimeMetricsDto) {
@@ -297,6 +330,51 @@ export class InterviewController {
                 `repair_prompts=${body.transcript_repair_prompts_sent}`,
                 `failures=${body.connection_failures}`,
                 `reason=${body.reason}`,
+            ].join(" ")
+        );
+        await this.interviewService.recordRealtimeMetrics(body);
+        return { ok: true };
+    }
+
+    @Post("elevenlabs/post-call-webhook")
+    @ApiOperation({ summary: "Receive ElevenLabs post-call webhook events" })
+    async handleElevenLabsPostCallWebhook(
+        @Req() req: { body: Record<string, unknown>; headers: Record<string, string | string[] | undefined> }
+    ) {
+        const payload = req.body ?? {};
+        const signatureHeaderValue = req.headers["elevenlabs-signature"];
+        const signatureHeader =
+            typeof signatureHeaderValue === "string"
+                ? signatureHeaderValue
+                : Array.isArray(signatureHeaderValue)
+                    ? signatureHeaderValue[0]
+                    : "";
+        const webhookSecret = process.env.ELEVENLABS_WEBHOOK_SECRET ?? "";
+
+        if (webhookSecret) {
+            const payloadText = JSON.stringify(payload);
+            const isValid = verifyElevenLabsWebhookSignature({
+                payload: payloadText,
+                signatureHeader,
+                secret: webhookSecret,
+            });
+            if (!isValid) {
+                this.logger.warn("elevenlabs.post-call-webhook.invalid_signature");
+                return { ok: false, error: "invalid signature" };
+            }
+        }
+
+        const interviewSessionId = extractInterviewSessionIdFromWebhookPayload(payload);
+        await this.interviewService.processElevenLabsPostCallWebhook({
+            payload,
+            interviewSessionId,
+        });
+
+        this.logger.log(
+            [
+                "elevenlabs.post-call-webhook.accepted",
+                `type=${typeof payload.type === "string" ? payload.type : "unknown"}`,
+                `session=${interviewSessionId ?? "none"}`,
             ].join(" ")
         );
         return { ok: true };

@@ -5,6 +5,7 @@ import { JwtService } from 'src/shared/services/jwt.services';
 import { CandidateJwtAuthGuard } from 'src/shared/guards/candidate-jwt-auth.guard';
 import { InterviewController } from './interview.controller';
 import { InterviewService } from './interview.service';
+import { ElevenLabsService } from './elevenlabs.service';
 import { SpeechModule } from 'src/modules/speech/speech.module';
 import { InterviewGateway } from 'src/gateways/candidate/interview/interview.gateway';
 import { PaginationHelper } from 'src/shared/helpers/features/pagination';
@@ -27,6 +28,7 @@ import { CandidateGeneratedProfileWorker } from './interview.generated-profile.w
   controllers: [InterviewController],
   providers: [
     InterviewService,
+    ElevenLabsService,
     InterviewGateway,
     JwtService,
     CandidateJwtAuthGuard,
