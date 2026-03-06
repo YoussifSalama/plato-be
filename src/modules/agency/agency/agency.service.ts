@@ -877,6 +877,35 @@ export class AgencyService {
             200
         );
     }
+    async getBillingHistory(accountId: number) {
+        const account = await this.prisma.account.findUnique({
+            where: { id: accountId },
+            select: { agency_id: true, teamMember: { select: { team: { select: { agency: { select: { id: true } } } } } } },
+        });
+
+        const agencyId = account?.teamMember?.team?.agency?.id ?? (account?.agency_id ?? null);
+        if (!agencyId) {
+            throw new BadRequestException("Agency not found.");
+        }
+
+        const subscription = await (this.prisma as any).agencySubscription.findUnique({
+            where: { agency_id: agencyId },
+            select: { stripe_customer_id: true }
+        });
+
+        if (!subscription || !subscription.stripe_customer_id) {
+            return responseFormatter([], undefined, "No billing history found.", 200);
+        }
+
+        const invoices = await this.stripeService.getCustomerInvoices(subscription.stripe_customer_id);
+
+        return responseFormatter(
+            invoices,
+            undefined,
+            "Billing history loaded.",
+            200
+        );
+    }
 
     async getSubscription(accountId: number) {
         const account = await this.prisma.account.findUnique({
@@ -899,7 +928,11 @@ export class AgencyService {
         }
 
         return responseFormatter(
-            subscription,
+            {
+                ...subscription,
+                current_period_start: subscription.start_date,
+                current_period_end: subscription.end_date,
+            },
             undefined,
             "Agency subscription loaded.",
             200
@@ -934,12 +967,20 @@ export class AgencyService {
         const successUrl = `${frontendUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`;
         const cancelUrl = `${frontendUrl}/billing/cancel`;
 
+        const existingSubscription = await (this.prisma as any).agencySubscription.findUnique({
+            where: { agency_id: agencyId },
+            select: { stripe_customer_id: true }
+        });
+
+        const stripeCustomerId = existingSubscription?.stripe_customer_id || null;
+
         const { url } = await this.stripeService.createCheckoutSession(
             agencyId,
             plan.id,
             successUrl,
             cancelUrl,
-            account.email
+            account.email,
+            stripeCustomerId
         );
 
         return responseFormatter(

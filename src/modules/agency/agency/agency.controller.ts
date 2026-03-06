@@ -150,6 +150,14 @@ export class AgencyController {
         return this.agencyService.getSubscription(req.user.id);
     }
 
+    @Get('subscription/billing-history')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: "Get agency's past 12 billing history invoices via Stripe" })
+    async getBillingHistory(@Req() req: { user: AccessTokenPayload }) {
+        return this.agencyService.getBillingHistory(req.user.id);
+    }
+
     @Post('subscription/create-checkout-session')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
