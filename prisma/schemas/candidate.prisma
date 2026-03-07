@@ -23,6 +23,8 @@ model Candidate {
     otps CandidateOtp[]
     job_matches JobMatch[]
     applications JobApplication[]
+    inboxes CandidateInbox[]
+    saved_jobs CandidateSavedJob[]
 
     google_id String? @unique
     auth_provider String?
@@ -144,4 +146,38 @@ model SocialLinks{
 
     @@index([profile_id])
     @@unique([profile_id, key])
+}
+
+model CandidateSavedJob{
+    id Int @id @default(autoincrement())
+
+    candidate_id Int
+    candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+
+    job_id Int
+    job Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+    created_at DateTime @default(now())
+
+    @@unique([candidate_id, job_id])
+}
+
+model CandidateInbox{
+    id Int @id @default(autoincrement())
+    type CandidateInboxType
+    status CandidateInboxStatus @default(unread)
+    title String
+    description String?
+
+    candidate_id Int
+    candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+
+    job_id Int?
+    job Job? @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+    interview_session_id Int?
+    interview_session InterviewSession? @relation(fields: [interview_session_id], references: [id], onDelete: Cascade)
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
 }

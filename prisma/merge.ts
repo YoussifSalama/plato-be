@@ -7,6 +7,7 @@ const schemas = [
     'resume.prisma',
     'resume.ai.prisma',
     'agency.prisma',
+    'subscription.prisma',
     'job.prisma',
     'invitation.prisma',
     'inbox.prisma',

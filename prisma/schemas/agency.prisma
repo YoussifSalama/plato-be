@@ -49,6 +49,8 @@ model Agency {
     team_id Int?  @unique
     team    Team? @relation(fields: [team_id], references: [id])
 
+    agency_subscription AgencySubscription?
+
     team_invitations TeamInvitation[]
 
     jobs Job[]

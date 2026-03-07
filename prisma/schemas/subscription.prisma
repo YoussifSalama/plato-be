@@ -1,0 +1,38 @@
+model SubscriptionPlan{
+    id Int @id @default(autoincrement())
+    name PlanName @unique
+    interview_sessions_quota Int
+    resume_analysis_quota Int
+    job_posting_quota Int
+    price Int @default(0)
+
+    agency_subscriptions AgencySubscription[]
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}
+
+model AgencySubscription{
+    id Int @id @default(autoincrement())
+
+    agency_id Int @unique
+    agency Agency @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+
+    plan_id Int
+    plan SubscriptionPlan @relation(fields: [plan_id], references: [id])
+
+    used_interview_sessions Int @default(0)
+    used_resume_analysis Int @default(0)
+    used_job_posting Int @default(0)
+
+    start_date DateTime @default(now())
+    end_date DateTime?
+    trial_end_date DateTime?
+    is_active Boolean @default(true)
+
+    stripe_customer_id String?
+    stripe_subscription_id String?
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+}

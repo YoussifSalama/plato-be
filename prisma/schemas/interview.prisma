@@ -54,6 +54,7 @@ model InterviewSession{
     updated_at DateTime @updatedAt
 
     inboxes Inbox[]
+    candidate_inboxes CandidateInbox[]
     elevenlabs_webhook_events ElevenLabsWebhookEvent[]
 
     @@index([agency_id])

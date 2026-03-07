@@ -155,3 +155,22 @@ enum InterviewGeneratedProfileStatus{
     completed
     failed
 }
+
+enum PlanName{
+    intro
+    base
+    pro
+    enterprise
+}
+
+enum CandidateInboxStatus{
+    unread
+    read
+    archived
+}
+
+enum CandidateInboxType{
+    application
+    interview
+    account
+}
