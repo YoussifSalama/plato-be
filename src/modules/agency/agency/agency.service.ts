@@ -742,8 +742,8 @@ export class AgencyService {
             return ((current - prev) / prev) * 100;
         };
 
-        const currentHiringSuccessRate = currentResumesCount > 0 ? (currentShortlistedCount / currentResumesCount) * 100 : 0;
-        const prevHiringSuccessRate = prevResumesCount > 0 ? (prevShortlistedCount / prevResumesCount) * 100 : 0;
+        const currentHiringSuccessRate = currentResumesCount > 0 ? (currentShortlistedCount / currentResumesCount) : 0;
+        const prevHiringSuccessRate = prevResumesCount > 0 ? (prevShortlistedCount / prevResumesCount) : 0;
 
         // Weekly Activity Build
         const daysOfWeek = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -855,7 +855,7 @@ export class AgencyService {
                 totalJobs: { value: currentJobsCount, trend: calcTrend(currentJobsCount, prevJobsCount) },
                 newApplicants: { value: currentApplicantsCount, trend: calcTrend(currentApplicantsCount, prevApplicantsCount) },
                 interviewsScheduled: { value: currentInterviewsCount, trend: calcTrend(currentInterviewsCount, prevInterviewsCount) },
-                hiringSuccessRate: { value: currentHiringSuccessRate, trend: Math.round(currentHiringSuccessRate - prevHiringSuccessRate) },
+                hiringSuccessRate: { value: currentHiringSuccessRate, trend: Math.round((currentHiringSuccessRate - prevHiringSuccessRate) * 100) },
             },
             weeklyActivity,
             applicationStatus,
