@@ -38,9 +38,77 @@ export class StripeController {
         if (event.type === 'checkout.session.completed') {
             const session = event.data.object as Stripe.Checkout.Session;
             await this.handleCheckoutSessionCompleted(session);
+        } else if (event.type === 'customer.subscription.updated') {
+            const subscription = event.data.object as Stripe.Subscription;
+            await this.handleSubscriptionUpdated(subscription);
+        } else if (event.type === 'customer.subscription.deleted') {
+            const subscription = event.data.object as Stripe.Subscription;
+            await this.handleSubscriptionDeleted(subscription);
         }
 
         return { received: true };
+    }
+
+    private async handleSubscriptionUpdated(subscription: Stripe.Subscription) {
+        let trialEndDate: Date | null = null;
+        let isActive = true;
+
+        if (subscription.status === 'trialing' && subscription.trial_end) {
+            trialEndDate = new Date(subscription.trial_end * 1000);
+        }
+        if (subscription.status === 'canceled' || subscription.status === 'unpaid') {
+            isActive = false;
+        }
+
+        const updateData: any = {
+            trial_end_date: trialEndDate,
+            is_active: isActive,
+        };
+
+        if ((subscription as any).current_period_start) {
+            updateData.start_date = new Date((subscription as any).current_period_start * 1000);
+        }
+
+        if ((subscription as any).current_period_end) {
+            updateData.end_date = new Date((subscription as any).current_period_end * 1000);
+        }
+
+        // Find the subscription by stripe_subscription_id
+        const existingSub = await this.prisma.agencySubscription.findFirst({
+            where: { stripe_subscription_id: subscription.id },
+            select: { id: true, agency_id: true }
+        });
+
+        if (!existingSub) {
+            this.logger.warn(`Received subscription update for unknown subscription ID: ${subscription.id}`);
+            return;
+        }
+
+        await this.prisma.agencySubscription.update({
+            where: { id: existingSub.id },
+            data: updateData
+        });
+
+        this.logger.log(`Updated agency ${existingSub.agency_id} subscription status: ${subscription.status}`);
+    }
+
+    private async handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+        // Find the subscription by stripe_subscription_id
+        const existingSub = await this.prisma.agencySubscription.findFirst({
+            where: { stripe_subscription_id: subscription.id },
+            select: { id: true, agency_id: true }
+        });
+
+        if (!existingSub) {
+            this.logger.warn(`Received subscription deletion for unknown subscription ID: ${subscription.id}`);
+            return;
+        }
+
+        await this.prisma.agencySubscription.delete({
+            where: { id: existingSub.id }
+        });
+
+        this.logger.log(`Deleted agency ${existingSub.agency_id} subscription because it was canceled in Stripe.`);
     }
 
     private async handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) {
@@ -66,11 +134,52 @@ export class StripeController {
             return;
         }
 
-        const now = new Date();
-        // Stripe Subscriptions manages dates, but for now we set a 30 day local end date
-        // If you integrate deeper with Stripe billing periods, you can extract `current_period_end`
-        // from a `invoice.payment_succeeded` event or `customer.subscription.updated` event down the line.
-        const endDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        // Check if there is an existing Stripe subscription for this agency
+        // If they just created a new one, we must cancel the old one to prevent double billing!
+        const existingSub = await this.prisma.agencySubscription.findUnique({
+            where: { agency_id: agencyId },
+        });
+
+        if (
+            existingSub &&
+            existingSub.stripe_subscription_id &&
+            existingSub.stripe_subscription_id !== stripeSubscriptionId
+        ) {
+            try {
+                await this.stripeService.cancelSubscription(existingSub.stripe_subscription_id);
+                this.logger.log(`Canceled previous Stripe subscription ${existingSub.stripe_subscription_id} for agency ${agencyId} because they upgraded/downgraded.`);
+            } catch (error: any) {
+                this.logger.error(`Failed to cancel previous Stripe subscription ${existingSub.stripe_subscription_id}: ${error.message}`);
+            }
+        }
+
+        let trialEndDate: Date | null = null;
+        let isActive = true;
+        let startDate = new Date();
+        // By default, assume a 30 day cycle if Stripe fetch fails
+        let endDate = new Date(startDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+        if (stripeSubscriptionId) {
+            try {
+                const subscription = await this.stripeService.getSubscription(stripeSubscriptionId);
+                // If it's a trial, Stripe returns trial_end as a Unix timestamp (seconds)
+                if (subscription.status === 'trialing' && subscription.trial_end) {
+                    trialEndDate = new Date(subscription.trial_end * 1000);
+                }
+                if (subscription.status === 'canceled' || subscription.status === 'unpaid') {
+                    isActive = false;
+                }
+
+                if ((subscription as any).current_period_start) {
+                    startDate = new Date((subscription as any).current_period_start * 1000);
+                }
+                if ((subscription as any).current_period_end) {
+                    endDate = new Date((subscription as any).current_period_end * 1000);
+                }
+            } catch (error: any) {
+                this.logger.error(`Failed to fetch subscription details: ${error.message}`);
+            }
+        }
 
         await this.prisma.agencySubscription.upsert({
             where: { agency_id: agencyId },
@@ -79,9 +188,10 @@ export class StripeController {
                 used_interview_sessions: 0,
                 used_resume_analysis: 0,
                 used_job_posting: 0,
-                start_date: now,
+                start_date: startDate,
                 end_date: endDate,
-                is_active: true,
+                trial_end_date: trialEndDate,
+                is_active: isActive,
                 stripe_customer_id: stripeCustomerId,
                 stripe_subscription_id: stripeSubscriptionId,
             },
@@ -91,9 +201,10 @@ export class StripeController {
                 used_interview_sessions: 0,
                 used_resume_analysis: 0,
                 used_job_posting: 0,
-                start_date: now,
+                start_date: startDate,
                 end_date: endDate,
-                is_active: true,
+                trial_end_date: trialEndDate,
+                is_active: isActive,
                 stripe_customer_id: stripeCustomerId,
                 stripe_subscription_id: stripeSubscriptionId,
             },

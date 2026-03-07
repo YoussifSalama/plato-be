@@ -24,6 +24,7 @@ export class StripeService {
         cancelUrl: string,
         customerEmail?: string,
         stripeCustomerId?: string | null,
+        hasHadTrial: boolean = false,
     ): Promise<{ url: string | null }> {
         try {
             // Map database Plan ID to Stripe Product ID and Unit Amount (in cents)
@@ -67,6 +68,12 @@ export class StripeService {
                 },
             };
 
+            if (!hasHadTrial) {
+                sessionConfig.subscription_data = {
+                    trial_period_days: 14,
+                };
+            }
+
             // If we already have a customer ID on file, use it to retain billing history
             if (stripeCustomerId) {
                 sessionConfig.customer = stripeCustomerId;
@@ -89,6 +96,14 @@ export class StripeService {
             throw new Error('Stripe webhook secret is missing.');
         }
         return this.stripe.webhooks.constructEvent(payload, signature, webhookSecret);
+    }
+
+    async getSubscription(subscriptionId: string) {
+        return this.stripe.subscriptions.retrieve(subscriptionId);
+    }
+
+    async cancelSubscription(subscriptionId: string) {
+        return this.stripe.subscriptions.cancel(subscriptionId);
     }
 
     async getCustomerInvoices(customerId: string) {

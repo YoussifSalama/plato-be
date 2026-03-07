@@ -213,6 +213,7 @@ model AgencySubscription {
   used_job_posting        Int              @default(0)
   start_date              DateTime         @default(now())
   end_date                DateTime?
+  trial_end_date          DateTime?
   is_active               Boolean          @default(true)
   stripe_customer_id      String?
   stripe_subscription_id  String?

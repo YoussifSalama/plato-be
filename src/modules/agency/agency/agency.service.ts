@@ -924,7 +924,12 @@ export class AgencyService {
         });
 
         if (!subscription) {
-            throw new BadRequestException("Subscription not found.");
+            return responseFormatter(
+                null,
+                undefined,
+                "No active subscription found.",
+                200
+            );
         }
 
         return responseFormatter(
@@ -932,6 +937,7 @@ export class AgencyService {
                 ...subscription,
                 current_period_start: subscription.start_date,
                 current_period_end: subscription.end_date,
+                trial_end_date: subscription.trial_end_date,
             },
             undefined,
             "Agency subscription loaded.",
@@ -974,13 +980,16 @@ export class AgencyService {
 
         const stripeCustomerId = existingSubscription?.stripe_customer_id || null;
 
+        const hasHadTrial = !!existingSubscription;
+
         const { url } = await this.stripeService.createCheckoutSession(
             agencyId,
             plan.id,
             successUrl,
             cancelUrl,
             account.email,
-            stripeCustomerId
+            stripeCustomerId,
+            hasHadTrial
         );
 
         return responseFormatter(
