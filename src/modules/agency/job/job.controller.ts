@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Delete, Query, Req, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { JwtAuthGuard } from "src/shared/guards/jwt-auth.guard";
 import { CreateJobDto } from "./dto/create-job.dto";
@@ -67,6 +67,18 @@ export class JobController {
     ) {
         const userId = req.user.id;
         return this.jobService.getJobById(userId, id);
+    }
+
+    @Delete(":id")
+    @ApiOperation({ summary: "Delete a job" })
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    async deleteJob(
+        @Req() req: { user: AccessTokenPayload },
+        @Param("id", ParseIntPipe) id: number,
+    ) {
+        const userId = req.user.id;
+        return this.jobService.deleteJob(userId, id);
     }
 
     @Get(":id/resumes")

@@ -142,6 +142,37 @@ export class JobService {
         return job;
     }
 
+    async deleteJob(accountId: number, jobId: number) {
+        const agencyId = await this.getAgencyId(accountId);
+
+        const jobClient = (this.prisma as unknown as {
+            job: {
+                findFirst: (args: { where: { id: number; agency_id: number }; select: { id: true } }) => Promise<{ id: number } | null>
+                delete: (args: { where: { id: number } }) => Promise<unknown>
+            }
+        }).job;
+
+        const job = await jobClient.findFirst({
+            where: { id: jobId, agency_id: agencyId },
+            select: { id: true },
+        });
+
+        if (!job) {
+            throw new BadRequestException("Job not found or you do not have permission to delete it.");
+        }
+
+        await jobClient.delete({
+            where: { id: jobId },
+        });
+
+        return responseFormatter(
+            null,
+            undefined,
+            "Job deleted successfully.",
+            200
+        );
+    }
+
     async getJobResumes(accountId: number, jobId: number, dto: GetJobResumesDto) {
         const agencyId = await this.getAgencyId(accountId);
         const job = await (this.prisma as unknown as {
