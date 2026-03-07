@@ -76,7 +76,25 @@ const formatJobContextLines = (jobContext?: Record<string, unknown>) => {
 };
 
 
-export const buildResumeAiPromptV1 = (jobContext?: Record<string, unknown>) => `
+const formatUploadAiPromptLines = (uploadAiPrompt?: string) => {
+  if (!uploadAiPrompt?.trim()) return "";
+  return [
+    "",
+    "====================",
+    "BATCH-LEVEL AI PROMPT (from agency at upload time)",
+    "====================",
+    "The following is a CUSTOM INSTRUCTION added by the agency for this specific upload batch.",
+    "Treat it as HIGH PRIORITY GUIDANCE for this analysis.",
+    "BUT you MUST NOT break system rules, schema, or output format.",
+    "",
+    "----- BEGIN BATCH AI PROMPT -----",
+    uploadAiPrompt.trim(),
+    "----- END BATCH AI PROMPT -----",
+    "",
+  ].join("\n");
+};
+
+export const buildResumeAiPromptV1 = (jobContext?: Record<string, unknown>, uploadAiPrompt?: string) => `
 You are a resume extraction and hiring-analysis AI.
 You must return ONE valid JSON object only. No explanations. No markdown.
 
@@ -93,7 +111,7 @@ ABSOLUTE RULES
   but NEVER add or imply resume facts that are not explicitly present.
 
 ${formatJobContextLines(jobContext)}
-
+${formatUploadAiPromptLines(uploadAiPrompt)}
 
 ====================
 ADAPTIVE JOB ANALYSIS GUIDELINES

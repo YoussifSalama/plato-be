@@ -130,8 +130,8 @@ export class ResumeWorker extends WorkerHost {
         throw new Error("OpenAI batch creation failed.");
     }
 
-    private async makeResumesBatchJsonl(parsedResumes: { id: number, parsed: string }[], jobContext: Record<string, unknown>) {
-        const prompt = buildResumeAiPromptV1(jobContext);
+    private async makeResumesBatchJsonl(parsedResumes: { id: number, parsed: string }[], jobContext: Record<string, unknown>, uploadAiPrompt?: string) {
+        const prompt = buildResumeAiPromptV1(jobContext, uploadAiPrompt);
         const lines = parsedResumes.map(resume => {
             return JSON.stringify({
                 custom_id: `resume-${resume.id}`,
@@ -176,7 +176,7 @@ export class ResumeWorker extends WorkerHost {
         return parsedResumes;
     }
 
-    async process(job: Job<{ arrangedSavedResumes: ArrangedSavedResume[]; jobId: number }>) {
+    async process(job: Job<{ arrangedSavedResumes: ArrangedSavedResume[]; jobId: number; aiPrompt?: string }>) {
         try {
             this.logger.log(`Processing job ${job.id} with ${job.data.arrangedSavedResumes.length} resume(s).`);
             const arrangedSavedResumes = job.data.arrangedSavedResumes;
@@ -253,7 +253,7 @@ export class ResumeWorker extends WorkerHost {
             }
             for (let i = 0; i < uniqueResumes.length; i += chunkSize) {
                 const chunk = uniqueResumes.slice(i, i + chunkSize);
-                const batchJsonlFileName = await this.makeResumesBatchJsonl(chunk, jobContext);
+                const batchJsonlFileName = await this.makeResumesBatchJsonl(chunk, jobContext, job.data.aiPrompt);
                 this.logger.log(`Created batch JSONL file: ${batchJsonlFileName}`);
                 await this.sendBatchCreatedToOpenAi(batchJsonlFileName, {
                     jobId: job.data.jobId,

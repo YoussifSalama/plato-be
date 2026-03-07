@@ -2,7 +2,7 @@ import { BadRequestException, Body, Controller, Get, Param, ParseIntPipe, Patch,
 import { ResumeService } from './resume.service';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
-import { ApiBearerAuth, ApiBody, ApiConsumes } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation } from '@nestjs/swagger';
 import { ensureUploadsDir } from "src/shared/helpers/storage/uploads-path";
 import { GetResumesDto } from './dto/get-resumes.dto';
 import { GetResumeDetailsDto } from './dto/get-resume-details.dto';
@@ -11,6 +11,7 @@ import { DenyResumeDto } from './dto/deny-resume.dto';
 import { ShortlistResumeDto } from './dto/shortlist-resume.dto';
 import { InviteResumeDto } from './dto/invite-resume.dto';
 import { ScheduleAiCallDto } from './dto/schedule-ai-call.dto';
+import { EnhanceResumePromptDto } from './dto/enhance-resume-prompt.dto';
 
 const getResumeFolder = () => {
     return ensureUploadsDir("resumes");
@@ -60,12 +61,14 @@ export class ResumeController {
                     items: { type: 'string', format: 'binary' }
                 },
                 job_id: { type: 'number', example: 1 },
+                ai_prompt: { type: 'string', example: 'Prioritise candidates with startup experience.' },
             }
         }
     })
     async processResumes(
         @UploadedFiles() resumes: Express.Multer.File[] | undefined,
         @Body('job_id', ParseIntPipe) jobId: number,
+        @Body('ai_prompt') aiPrompt: string | undefined,
         @Req() req: { user?: { id: number } },
     ) {
         const userId = req.user?.id;
@@ -76,7 +79,8 @@ export class ResumeController {
         if (!files.length) {
             throw new BadRequestException('No files uploaded');
         }
-        return this.resumeService.processResumes(files, jobId, userId);
+        const normalizedAiPrompt = aiPrompt?.trim() || undefined;
+        return this.resumeService.processResumes(files, jobId, userId, normalizedAiPrompt);
     }
 
     @Get()
@@ -173,5 +177,20 @@ export class ResumeController {
             throw new BadRequestException('Invalid user');
         }
         return this.resumeService.scheduleAiCall(id, userId, dto);
+    }
+
+    @Post('ai/enhance-prompt')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: "Enhance a resume analysis AI prompt using GPT" })
+    async enhanceAiPrompt(
+        @Req() req: { user?: { id: number } },
+        @Body() dto: EnhanceResumePromptDto,
+    ) {
+        const userId = req.user?.id;
+        if (!userId) {
+            throw new BadRequestException('Invalid user');
+        }
+        return this.resumeService.enhanceAiPrompt(userId, dto.prompt, dto.job_id);
     }
 }

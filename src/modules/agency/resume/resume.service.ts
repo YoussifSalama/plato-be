@@ -11,6 +11,8 @@ import { ShortlistResumeDto } from './dto/shortlist-resume.dto';
 import { InviteResumeDto } from './dto/invite-resume.dto';
 import { InvitationService } from 'src/modules/agency/invitation/invitation.service';
 import { AiCallProducer } from 'src/queues/agency/ai-call/ai-call.producer';
+import { OpenAiService } from 'src/shared/services/openai.service';
+import { buildEnhanceResumePromptSystemMessage, buildEnhanceResumePromptUserMessage } from 'src/shared/ai/agency/prompts/resume-prompt-enhance.prompt';
 
 @Injectable()
 export class ResumeService {
@@ -22,7 +24,12 @@ export class ResumeService {
         private readonly paginationHelper: PaginationHelper,
         private readonly invitationService: InvitationService,
         private readonly aiCallProducer: AiCallProducer,
+        private readonly openaiService: OpenAiService,
     ) { }
+
+    private get openai() {
+        return this.openaiService.getRotatedClient().client;
+    }
 
     private async getAgencyId(accountId: number) {
         const account = await this.prisma.account.findUnique({
@@ -99,7 +106,7 @@ export class ResumeService {
         return resume;
     }
 
-    async processResumes(files: Express.Multer.File[], jobId: number, userId: number) {
+    async processResumes(files: Express.Multer.File[], jobId: number, userId: number, aiPrompt?: string) {
         try {
             const agencyId = await this.getAgencyId(userId);
 
@@ -178,7 +185,7 @@ export class ResumeService {
             });
 
             this.logger.log(`Dispatching ${createdResumes.length} resume(s) to queue.`);
-            await this.resumeProducer.processResumes(createdResumes, jobId);
+            await this.resumeProducer.processResumes(createdResumes, jobId, aiPrompt);
         } catch (error) {
             this.logger.error('Failed to process resumes.', error instanceof Error ? error.stack : undefined);
             throw error;
@@ -564,5 +571,50 @@ export class ResumeService {
             "AI call scheduled successfully",
             200,
         );
+    }
+
+    async enhanceAiPrompt(accountId: number, rawPrompt: string, jobId?: number) {
+        await this.getAgencyId(accountId);
+
+        if (this.openaiService.count === 0) {
+            throw new BadRequestException("OpenAI API key not configured.");
+        }
+
+        let jobContext: Record<string, unknown> | undefined;
+        if (jobId) {
+            const job = await this.prisma.job.findUnique({
+                where: { id: jobId },
+                select: {
+                    title: true,
+                    seniority_level: true,
+                    employment_type: true,
+                    industry: true,
+                    location: true,
+                    technical_skills: true,
+                    soft_skills: true,
+                    languages: true,
+                    certifications: true,
+                    requirements: true,
+                },
+            });
+            jobContext = job ?? undefined;
+        }
+
+        const completion = await this.openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+                { role: "system", content: buildEnhanceResumePromptSystemMessage(jobContext as any) },
+                { role: "user", content: buildEnhanceResumePromptUserMessage(rawPrompt) },
+            ],
+            max_completion_tokens: 900,
+        });
+
+        const enhanced = completion.choices?.[0]?.message?.content?.trim() ?? "";
+
+        if (!enhanced) {
+            throw new BadRequestException("AI returned an empty response.");
+        }
+
+        return responseFormatter({ enhanced }, null, "Prompt enhanced successfully.", 200);
     }
 }

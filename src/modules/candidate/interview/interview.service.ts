@@ -17,6 +17,7 @@ import { PrismaService } from 'src/modules/prisma/prisma.service';
 import { SpeechService } from 'src/modules/speech/speech.service';
 import AiInterviewPrompt from 'src/shared/ai/candidate/prompts/ai.interview.prompt';
 import GenerateReferenceQuestions from 'src/shared/ai/candidate/prompts/ai.refrence.prompt';
+import { INTERVIEW_FLOW_BLOCK, INTERVIEW_FLOW_BLOCK_AR } from 'src/shared/ai/candidate/prompts/elevenlabs.interview-flow.prompt';
 import { InterviewLanguage } from './dto/create-interview-resources.dto';
 import responseFormatter from 'src/shared/helpers/response';
 import {
@@ -271,6 +272,7 @@ export class InterviewService {
             "Normalize text for speech: expand numbers, dates, currencies, abbreviations, URLs, and symbols into spoken-friendly words.",
             "Never mention internal tools, emit/function/event names, or technical actions out loud.",
             "When cancel/postpone/complete is confirmed by candidate, execute the corresponding tool silently.",
+            params.language === "ar" ? INTERVIEW_FLOW_BLOCK_AR : INTERVIEW_FLOW_BLOCK,
             `Agency: ${agencyName}`,
             `Job title: ${jobTitle}`,
             `Job description: ${jobDescription}`,
@@ -1120,6 +1122,7 @@ export class InterviewService {
     async cancelInterviewSession(interviewSessionId: number) {
         const session = await this.prisma.interviewSession.findUnique({
             where: { id: interviewSessionId },
+            include: { invitation_token: { select: { invitation_id: true } } },
         });
         if (!session) {
             throw new BadRequestException("Interview session not found.");
@@ -1127,16 +1130,28 @@ export class InterviewService {
         if (session.status === InterviewSessionStatus.completed) {
             throw new BadRequestException("Interview session already completed.");
         }
-        const [updatedSession] = await this.prisma.$transaction([
-            this.prisma.interviewSession.update({
+        if (session.status === InterviewSessionStatus.cancelled) {
+            throw new BadRequestException("Interview session already cancelled.");
+        }
+
+        const invitationId = session.invitation_token.invitation_id;
+
+        const updatedSession = await this.prisma.$transaction(async (tx) => {
+            // Revoke every token ever issued for this invitation so no link
+            // (including older postpone tokens) can be used to re-enter.
+            await tx.invitationToken.updateMany({
+                where: {
+                    invitation_id: invitationId,
+                    revoked: false,
+                },
+                data: { revoked: true, status: InvitationTokenStatus.invalid },
+            });
+
+            return tx.interviewSession.update({
                 where: { id: interviewSessionId },
                 data: { status: InterviewSessionStatus.cancelled },
-            }),
-            this.prisma.invitationToken.update({
-                where: { id: session.invitation_token_id },
-                data: { revoked: true, status: InvitationTokenStatus.invalid },
-            }),
-        ]);
+            });
+        });
 
         await this.notifyInterviewStatus(updatedSession.id, InterviewSessionStatus.cancelled);
 

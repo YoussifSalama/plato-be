@@ -18,12 +18,13 @@ export class ResumeProducer {
         private readonly resumeQueue: Queue,
     ) { }
 
-    async processResumes(arrangedSavedResumes: ArrangedSavedResume[], jobId: number) {
+    async processResumes(arrangedSavedResumes: ArrangedSavedResume[], jobId: number, aiPrompt?: string) {
         try {
             this.logger.log(`Queueing ${arrangedSavedResumes.length} resume(s) for processing.`);
             await this.resumeQueue.add('process-resumes', {
                 arrangedSavedResumes,
                 jobId,
+                aiPrompt,
             }, {
                 attempts: 3,
                 backoff: { type: "exponential", delay: 5000 },
