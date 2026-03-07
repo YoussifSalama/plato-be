@@ -1,11 +1,11 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsNotEmpty, IsString, Matches, MaxLength, MinLength } from "class-validator";
+import { IsOptional, IsString, Matches, MaxLength, MinLength } from "class-validator";
 
 export class ChangePasswordDto {
-    @ApiProperty({ description: "Current password", example: "OldPassword@123" })
+    @ApiProperty({ description: "Current password (not required for Google OAuth users)", example: "OldPassword@123", required: false })
+    @IsOptional()
     @IsString()
-    @IsNotEmpty()
-    oldPassword: string;
+    oldPassword?: string;
 
     @ApiProperty({ description: "New password", example: "NewPassword@123" })
     @IsString()

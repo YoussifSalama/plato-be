@@ -284,7 +284,8 @@ export class AgencyService {
                 user_name: true,
                 agency_id: true,
                 teamMember: true,
-            },
+                auth_provider: true,
+            } as any,
         });
 
         if (!account) {
@@ -1025,16 +1026,28 @@ export class AgencyService {
         const account = await this.prisma.account.findUnique({
             where: { id: accountId },
             include: { credential: true },
-        });
+        }) as any;
         if (!account || !account.credential) {
             throw new BadRequestException("Account not found.");
         }
-        const isValid = await this.bcryptService.bcryptCompare(oldPassword, account.credential.password_hash, "password");
-        if (!isValid) {
-            throw new BadRequestException("Invalid current password.");
-        }
-        if (oldPassword === newPassword) {
-            throw new BadRequestException("New password must be different.");
+        const isGoogleUser = account.auth_provider === 'google';
+        if (isGoogleUser) {
+            // Google users have no known password — allow setting one directly
+            if (oldPassword) {
+                throw new BadRequestException("Google sign-in users do not have a current password to verify.");
+            }
+        } else {
+            // Email/password users must verify their current password
+            if (!oldPassword) {
+                throw new BadRequestException("Current password is required.");
+            }
+            const isValid = await this.bcryptService.bcryptCompare(oldPassword, account.credential.password_hash, "password");
+            if (!isValid) {
+                throw new BadRequestException("Invalid current password.");
+            }
+            if (oldPassword === newPassword) {
+                throw new BadRequestException("New password must be different.");
+            }
         }
         const newHash = await this.bcryptService.bcryptHash(newPassword, "password");
         await this.prisma.credential.update({
