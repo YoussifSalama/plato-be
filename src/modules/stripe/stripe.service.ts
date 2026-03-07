@@ -4,17 +4,25 @@ import Stripe from 'stripe';
 
 @Injectable()
 export class StripeService {
-    private readonly stripe: Stripe;
+    private readonly stripe: Stripe | null = null;
     private readonly logger = new Logger(StripeService.name);
 
     constructor(private readonly configService: ConfigService) {
         const secretKey = this.configService.get<string>('env.stripe.secretKey');
         if (!secretKey) {
-            this.logger.warn('Stripe secret key is not defined. Stripe functionalities will fail.');
+            this.logger.warn('Stripe secret key is not defined. Stripe functionalities will be unavailable.');
+            return;
         }
-        this.stripe = new Stripe(secretKey || '', {
-            apiVersion: '2026-02-25.clover', // Use a recent compatible API version
+        this.stripe = new Stripe(secretKey, {
+            apiVersion: '2026-02-25.clover',
         });
+    }
+
+    private get client(): Stripe {
+        if (!this.stripe) {
+            throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY in your environment.');
+        }
+        return this.stripe;
     }
 
     async createCheckoutSession(
@@ -81,7 +89,7 @@ export class StripeService {
                 sessionConfig.customer_email = customerEmail;
             }
 
-            const session = await this.stripe.checkout.sessions.create(sessionConfig);
+            const session = await this.client.checkout.sessions.create(sessionConfig);
 
             return { url: session.url };
         } catch (error) {
@@ -95,20 +103,20 @@ export class StripeService {
         if (!webhookSecret) {
             throw new Error('Stripe webhook secret is missing.');
         }
-        return this.stripe.webhooks.constructEvent(payload, signature, webhookSecret);
+        return this.client.webhooks.constructEvent(payload, signature, webhookSecret);
     }
 
     async getSubscription(subscriptionId: string) {
-        return this.stripe.subscriptions.retrieve(subscriptionId);
+        return this.client.subscriptions.retrieve(subscriptionId);
     }
 
     async cancelSubscription(subscriptionId: string) {
-        return this.stripe.subscriptions.cancel(subscriptionId);
+        return this.client.subscriptions.cancel(subscriptionId);
     }
 
     async getCustomerInvoices(customerId: string) {
         try {
-            const invoices = await this.stripe.invoices.list({
+            const invoices = await this.client.invoices.list({
                 customer: customerId,
                 limit: 12, // Get last 12 invoices
             });
