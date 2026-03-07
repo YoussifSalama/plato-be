@@ -102,61 +102,81 @@ export class ResumeService {
     async processResumes(files: Express.Multer.File[], jobId: number, userId: number) {
         try {
             const agencyId = await this.getAgencyId(userId);
-            const job = await this.prisma.job.findFirst({
-                where: {
-                    id: jobId,
-                    agency_id: agencyId,
-                },
-                select: { id: true },
-            });
-            if (!job) {
-                throw new NotFoundException('Job not found');
-            }
-            this.logger.log(`Processing ${files.length} resume file(s).`);
-            const araangedFiles = files.map((file) => {
-                const mimetype = file.mimetype.toLowerCase();
-                const originalName = file.originalname.toLowerCase();
-                const isSpreadsheet =
-                    mimetype.includes("sheet") ||
-                    mimetype.includes("excel") ||
-                    mimetype.includes("spreadsheet");
-                const isDoc =
-                    mimetype.includes("word") ||
-                    mimetype.includes("officedocument.wordprocessingml") ||
-                    mimetype.includes("msword") ||
-                    originalName.endsWith(".doc") ||
-                    originalName.endsWith(".docx");
-                const isPdf =
-                    mimetype.includes("pdf") ||
-                    originalName.endsWith(".pdf");
 
-                const fileType = isSpreadsheet
-                    ? ResumeFileTypes.xlsx
-                    : (isPdf || isDoc)
-                        ? ResumeFileTypes.pdf
-                        : ResumeFileTypes.pdf;
+            const createdResumes = await this.prisma.$transaction(async (tx) => {
+                const job = await tx.job.findFirst({
+                    where: {
+                        id: jobId,
+                        agency_id: agencyId,
+                    },
+                    select: { id: true },
+                });
+                if (!job) {
+                    throw new NotFoundException('Job not found');
+                }
 
-                return {
-                    name: file.originalname,
-                    file_type: fileType,
-                    link: file.filename,
-                    job_id: jobId,
-                    updated_by: userId,
-                };
+                const subscription = await (tx as any).agencySubscription.findUnique({
+                    where: { agency_id: agencyId },
+                    include: { plan: true },
+                });
+
+                if (!subscription) {
+                    throw new BadRequestException("Agency does not have an active subscription.");
+                }
+
+                if (subscription.plan.name !== 'enterprise' && subscription.used_resume_analysis + files.length > subscription.plan.resume_analysis_quota) {
+                    throw new BadRequestException(`Resume analysis quota exceeded. You can only analyze ${subscription.plan.resume_analysis_quota - subscription.used_resume_analysis} more resumes on your current plan.`);
+                }
+
+                this.logger.log(`Processing ${files.length} resume file(s).`);
+                const araangedFiles = files.map((file) => {
+                    const mimetype = file.mimetype.toLowerCase();
+                    const originalName = file.originalname.toLowerCase();
+                    const isSpreadsheet =
+                        mimetype.includes("sheet") ||
+                        mimetype.includes("excel") ||
+                        mimetype.includes("spreadsheet");
+                    const isDoc =
+                        mimetype.includes("word") ||
+                        mimetype.includes("officedocument.wordprocessingml") ||
+                        mimetype.includes("msword") ||
+                        originalName.endsWith(".doc") ||
+                        originalName.endsWith(".docx");
+                    const isPdf =
+                        mimetype.includes("pdf") ||
+                        originalName.endsWith(".pdf");
+
+                    const fileType = isSpreadsheet
+                        ? ResumeFileTypes.xlsx
+                        : (isPdf || isDoc)
+                            ? ResumeFileTypes.pdf
+                            : ResumeFileTypes.pdf;
+
+                    return {
+                        name: file.originalname,
+                        file_type: fileType,
+                        link: file.filename,
+                        job_id: jobId,
+                        updated_by: userId,
+                    };
+                });
+
+                const createResult = await tx.resume.createMany({
+                    data: araangedFiles,
+                });
+                if (!createResult || createResult.count === 0) {
+                    throw new BadRequestException('Failed to save resumes');
+                }
+                this.logger.log(`Saved ${createResult.count} resume record(s).`);
+
+                return tx.resume.findMany({
+                    where: {
+                        link: { in: araangedFiles.map((file) => file.link) },
+                    },
+                    select: { id: true, name: true, file_type: true, link: true },
+                });
             });
-            const createResult = await this.prisma.resume.createMany({
-                data: araangedFiles,
-            });
-            if (!createResult || createResult.count === 0) {
-                throw new BadRequestException('Failed to save resumes');
-            }
-            this.logger.log(`Saved ${createResult.count} resume record(s).`);
-            const createdResumes = await this.prisma.resume.findMany({
-                where: {
-                    link: { in: araangedFiles.map((file) => file.link) },
-                },
-                select: { id: true, name: true, file_type: true, link: true },
-            });
+
             this.logger.log(`Dispatching ${createdResumes.length} resume(s) to queue.`);
             await this.resumeProducer.processResumes(createdResumes, jobId);
         } catch (error) {

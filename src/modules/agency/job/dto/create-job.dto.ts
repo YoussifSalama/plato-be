@@ -74,9 +74,10 @@ export class CreateJobDto {
     @IsBoolean()
     is_active?: boolean;
 
-    @ApiProperty({ example: "2026-03-31T23:59:00.000Z" })
+    @ApiPropertyOptional({ example: "2026-03-31T23:59:00.000Z" })
+    @IsOptional()
     @IsDateString()
-    auto_deactivate_at: string;
+    auto_deactivate_at?: string;
 
     @ApiProperty({ example: "usd" })
     @IsString()

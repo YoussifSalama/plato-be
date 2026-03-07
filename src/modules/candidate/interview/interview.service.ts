@@ -40,6 +40,7 @@ import AiProfilePrompt from 'src/shared/ai/candidate/ai.profile.prompt';
 import { RealtimeMetricsDto } from './dto/realtime-metrics.dto';
 import { createHash } from "crypto";
 import { IOpenAiKeyConfig } from 'src/shared/types/config/env.types';
+import { CandidateNotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class InterviewService {
@@ -54,6 +55,7 @@ export class InterviewService {
         private readonly configService: ConfigService,
         private readonly sendGridService: SendGridService,
         private readonly randomUuidService: RandomUuidService,
+        private readonly candidateNotificationService: CandidateNotificationService,
         @InjectQueue('candidate_interview_generated_profile')
         private readonly generatedProfileQueue: Queue<{ interviewSessionId: number }>
     ) {
@@ -2149,26 +2151,34 @@ export class InterviewService {
                 }
             });
 
-            if (!session || !session.invitation_token || !session.invitation_token.invitation || !session.invitation_token.invitation.job) {
+            if (!session?.invitation_token?.invitation?.job) {
                 return;
             }
 
             const candidate = session.invitation_token.candidate;
             const job = session.invitation_token.invitation.job;
-            const candidateName = candidate
-                ? (candidate.candidate_name || `${candidate.f_name} ${candidate.l_name}`.trim())
-                : "Unknown Candidate";
 
-            await this.inboxService.createInterviewInbox({
-                agencyId: session.agency_id,
-                jobId: job.id,
-                interviewSessionId: sessionId,
-                status,
-                candidateName,
-                jobTitle: job.title,
-            });
+            if (candidate) {
+                const candidateName = candidate.candidate_name || `${candidate.f_name} ${candidate.l_name}`.trim();
+
+                await this.inboxService.createInterviewInbox({
+                    agencyId: session.agency_id,
+                    jobId: job.id,
+                    interviewSessionId: sessionId,
+                    status,
+                    candidateName,
+                    jobTitle: job.title,
+                });
+
+                this.candidateNotificationService.emitInterviewUpdate(candidate.id, {
+                    type: 'INTERVIEW_STATUS_CHANGED',
+                    interviewSessionId: sessionId,
+                    status,
+                    jobTitle: job.title
+                });
+            }
         } catch (error) {
-            console.error('Failed to create interview inbox notification', error);
+            console.error('Failed to create interview notification', error);
         }
     }
 }

@@ -14,6 +14,7 @@ import { OpenAiService } from 'src/shared/services/openai.service';
 import { EmailModule } from 'src/shared/services/email.module';
 import { RandomUuidService } from 'src/shared/services/randomuuid.services';
 import { CandidateGeneratedProfileWorker } from './interview.generated-profile.worker';
+import { CandidateNotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { CandidateGeneratedProfileWorker } from './interview.generated-profile.w
     SpeechModule,
     InboxModule,
     EmailModule,
+    CandidateNotificationModule,
     BullModule.registerQueue({
       name: 'candidate_interview_generated_profile',
     }),

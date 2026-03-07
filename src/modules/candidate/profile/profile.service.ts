@@ -6,10 +6,14 @@ import {
     UpdateProfileProjectDto,
     UpdateProfileSocialLinkDto,
 } from './dto/update-profile.dto';
+import { CandidateNotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class ProfileService {
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly candidateNotificationService: CandidateNotificationService
+    ) { }
 
     private async getOrCreateProfile(candidateId: number) {
         const profile = await this.prisma.profile.findUnique({
@@ -36,11 +40,15 @@ export class ProfileService {
     }
 
     async updateBasic(candidateId: number, dto: UpdateProfileBasicDto) {
-        return this.prisma.profile.upsert({
+        const result = await this.prisma.profile.upsert({
             where: { candidate_id: candidateId },
             create: { candidate_id: candidateId, ...dto },
             update: { ...dto },
         });
+
+        this.candidateNotificationService.emitAccountUpdate(candidateId, { type: 'PROFILE_UPDATED', section: 'basic' });
+
+        return result;
     }
 
     async replaceExperiences(candidateId: number, experiences: UpdateProfileExperienceDto[] = []) {
@@ -56,10 +64,14 @@ export class ProfileService {
                 ? [this.prisma.experience.createMany({ data })]
                 : []),
         ]);
-        return this.prisma.experience.findMany({
+        const result = await this.prisma.experience.findMany({
             where: { profile_id: profile.id },
             orderBy: { from: "desc" },
         });
+
+        this.candidateNotificationService.emitAccountUpdate(candidateId, { type: 'PROFILE_UPDATED', section: 'experiences' });
+
+        return result;
     }
 
     async replaceProjects(candidateId: number, projects: UpdateProfileProjectDto[] = []) {
@@ -74,10 +86,14 @@ export class ProfileService {
                 ? [this.prisma.project.createMany({ data })]
                 : []),
         ]);
-        return this.prisma.project.findMany({
+        const result = await this.prisma.project.findMany({
             where: { profile_id: profile.id },
             orderBy: { created_at: "desc" },
         });
+
+        this.candidateNotificationService.emitAccountUpdate(candidateId, { type: 'PROFILE_UPDATED', section: 'projects' });
+
+        return result;
     }
 
     async replaceSocialLinks(candidateId: number, socialLinks: UpdateProfileSocialLinkDto[] = []) {
@@ -92,10 +108,14 @@ export class ProfileService {
                 ? [this.prisma.socialLinks.createMany({ data })]
                 : []),
         ]);
-        return this.prisma.socialLinks.findMany({
+        const result = await this.prisma.socialLinks.findMany({
             where: { profile_id: profile.id },
             orderBy: { created_at: "desc" },
         });
+
+        this.candidateNotificationService.emitAccountUpdate(candidateId, { type: 'PROFILE_UPDATED', section: 'social_links' });
+
+        return result;
     }
 
     async updateAvatar(
@@ -109,10 +129,14 @@ export class ProfileService {
             throw new BadRequestException("Avatar must be an image file.");
         }
         const avatarPath = `/uploads/candidate/avatar/${file.filename}`;
-        return this.prisma.profile.upsert({
+        const result = await this.prisma.profile.upsert({
             where: { candidate_id: candidateId },
             create: { candidate_id: candidateId, avatar: avatarPath },
             update: { avatar: avatarPath },
         });
+
+        this.candidateNotificationService.emitAccountUpdate(candidateId, { type: 'PROFILE_UPDATED', section: 'avatar' });
+
+        return result;
     }
 }

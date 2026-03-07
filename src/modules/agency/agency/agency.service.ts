@@ -17,9 +17,11 @@ import { VerifyPasswordResetOtpDto } from './dto/verify-password-reset-otp.dto';
 import { SignupDto } from './dto/signup.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { UpdateAgencyDto } from './dto/update-agency.dto';
+import { UpgradeSubscriptionDto } from './dto/upgrade-subscription.dto';
 import { IJwtProvider } from 'src/shared/types/services/jwt.types';
 import { ConfigService } from '@nestjs/config';
 import { GoogleAuthService } from 'src/shared/services/google-auth.service';
+import { StripeService } from 'src/modules/stripe/stripe.service';
 
 @Injectable()
 export class AgencyService {
@@ -32,6 +34,7 @@ export class AgencyService {
         private readonly jwtService: JwtService,
         private readonly configService: ConfigService,
         private readonly googleAuthService: GoogleAuthService,
+        private readonly stripeService: StripeService,
     ) { }
 
     private getFrontendBaseUrl() {
@@ -746,8 +749,8 @@ export class AgencyService {
             return ((current - prev) / prev) * 100;
         };
 
-        const currentHiringSuccessRate = currentResumesCount > 0 ? (currentShortlistedCount / currentResumesCount) * 100 : 0;
-        const prevHiringSuccessRate = prevResumesCount > 0 ? (prevShortlistedCount / prevResumesCount) * 100 : 0;
+        const currentHiringSuccessRate = currentResumesCount > 0 ? (currentShortlistedCount / currentResumesCount) : 0;
+        const prevHiringSuccessRate = prevResumesCount > 0 ? (prevShortlistedCount / prevResumesCount) : 0;
 
         // Weekly Activity Build
         const daysOfWeek = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -859,7 +862,7 @@ export class AgencyService {
                 totalJobs: { value: currentJobsCount, trend: calcTrend(currentJobsCount, prevJobsCount) },
                 newApplicants: { value: currentApplicantsCount, trend: calcTrend(currentApplicantsCount, prevApplicantsCount) },
                 interviewsScheduled: { value: currentInterviewsCount, trend: calcTrend(currentInterviewsCount, prevInterviewsCount) },
-                hiringSuccessRate: { value: currentHiringSuccessRate, trend: Math.round(currentHiringSuccessRate - prevHiringSuccessRate) },
+                hiringSuccessRate: { value: currentHiringSuccessRate, trend: Math.round((currentHiringSuccessRate - prevHiringSuccessRate) * 100) },
             },
             weeklyActivity,
             applicationStatus,
@@ -878,6 +881,141 @@ export class AgencyService {
             responseData,
             undefined,
             "Agency dashboard loaded.",
+            200
+        );
+    }
+    async getBillingHistory(accountId: number) {
+        const account = await this.prisma.account.findUnique({
+            where: { id: accountId },
+            select: { agency_id: true, teamMember: { select: { team: { select: { agency: { select: { id: true } } } } } } },
+        });
+
+        const agencyId = account?.teamMember?.team?.agency?.id ?? (account?.agency_id ?? null);
+        if (!agencyId) {
+            throw new BadRequestException("Agency not found.");
+        }
+
+        const subscription = await (this.prisma as any).agencySubscription.findUnique({
+            where: { agency_id: agencyId },
+            select: { stripe_customer_id: true }
+        });
+
+        if (!subscription || !subscription.stripe_customer_id) {
+            return responseFormatter([], undefined, "No billing history found.", 200);
+        }
+
+        const invoices = await this.stripeService.getCustomerInvoices(subscription.stripe_customer_id);
+
+        return responseFormatter(
+            invoices,
+            undefined,
+            "Billing history loaded.",
+            200
+        );
+    }
+
+    async getSubscription(accountId: number) {
+        const account = await this.prisma.account.findUnique({
+            where: { id: accountId },
+            select: { agency_id: true, teamMember: { select: { team: { select: { agency: { select: { id: true } } } } } } },
+        });
+
+        const agencyId = account?.teamMember?.team?.agency?.id ?? (account?.agency_id ?? null);
+        if (!agencyId) {
+            throw new BadRequestException("Agency not found.");
+        }
+
+        const subscription = await (this.prisma as any).agencySubscription.findUnique({
+            where: { agency_id: agencyId },
+            include: { plan: true },
+        });
+
+        if (!subscription) {
+            return responseFormatter(
+                null,
+                undefined,
+                "No active subscription found.",
+                200
+            );
+        }
+
+        return responseFormatter(
+            {
+                ...subscription,
+                current_period_start: subscription.start_date,
+                current_period_end: subscription.end_date,
+                trial_end_date: subscription.trial_end_date,
+            },
+            undefined,
+            "Agency subscription loaded.",
+            200
+        );
+    }
+
+    async upgradeSubscription(accountId: number, dto: UpgradeSubscriptionDto) {
+        throw new BadRequestException("This endpoint is deprecated. Use create-checkout-session instead.");
+    }
+
+    async createCheckoutSession(accountId: number, dto: UpgradeSubscriptionDto) {
+        const account = await this.prisma.account.findUnique({
+            where: { id: accountId },
+            select: { email: true, agency_id: true, teamMember: { select: { team: { select: { agency: { select: { id: true } } } } } } },
+        });
+
+        const agencyId = account?.teamMember?.team?.agency?.id ?? (account?.agency_id ?? null);
+        if (!agencyId || !account) {
+            throw new BadRequestException("Agency or account not found.");
+        }
+
+        const plan = await (this.prisma as any).subscriptionPlan.findUnique({
+            where: { id: dto.plan_id }
+        });
+
+        if (!plan) {
+            throw new BadRequestException("Plan not found. Please provide a valid plan ID.");
+        }
+
+        const frontendUrl = this.configService.get<string>('env.frontendUrl') || 'http://localhost:3001';
+        // These URLs should point to a success or cancel page on your frontend
+        const successUrl = `${frontendUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`;
+        const cancelUrl = `${frontendUrl}/billing/cancel`;
+
+        const existingSubscription = await (this.prisma as any).agencySubscription.findUnique({
+            where: { agency_id: agencyId },
+            select: { stripe_customer_id: true }
+        });
+
+        const stripeCustomerId = existingSubscription?.stripe_customer_id || null;
+
+        const hasHadTrial = !!existingSubscription;
+
+        const { url } = await this.stripeService.createCheckoutSession(
+            agencyId,
+            plan.id,
+            successUrl,
+            cancelUrl,
+            account.email,
+            stripeCustomerId,
+            hasHadTrial
+        );
+
+        return responseFormatter(
+            { url },
+            undefined,
+            "Checkout session created successfully.",
+            200
+        );
+    }
+
+    async getSubscriptionPlans() {
+        const plans = await (this.prisma as any).subscriptionPlan.findMany({
+            orderBy: { id: 'asc' },
+        });
+
+        return responseFormatter(
+            plans,
+            undefined,
+            "Subscription plans loaded.",
             200
         );
     }

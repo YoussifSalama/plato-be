@@ -51,4 +51,8 @@ export interface IEnvParams {
     managedPromptVersion: string;
     allowAgentMutation: boolean;
   };
+  stripe: {
+    secretKey: string;
+    webhookSecret: string;
+  };
 }

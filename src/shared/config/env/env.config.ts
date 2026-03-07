@@ -75,6 +75,10 @@ export default registerAs(
             managedPromptVersion: process.env.ELEVENLABS_MANAGED_PROMPT_VERSION ?? "v1",
             allowAgentMutation: process.env.ELEVENLABS_ALLOW_AGENT_MUTATION === "true",
         },
+        stripe: {
+            secretKey: process.env.STRIPE_SECRET_KEY ?? '',
+            webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? '',
+        },
     });
     },
 );

@@ -76,24 +76,44 @@ export class JobService {
     async createJob(accountId: number, dto: CreateJobDto) {
         this.validateSalaryRange(dto.salary_from, dto.salary_to);
         const agencyId = await this.getAgencyId(accountId);
-        const autoDeactivateAt = this.parseAutoDeactivateAt(dto.auto_deactivate_at);
-        if (!autoDeactivateAt) {
-            throw new BadRequestException("auto_deactivate_at is required.");
-        }
-        const jobClient = (this.prisma as unknown as {
-            job: { create: (args: { data: Record<string, unknown> }) => Promise<unknown> }
-        }).job;
-        return jobClient.create({
-            data: {
-                ...dto,
-                auto_deactivate_at: autoDeactivateAt,
-                agency_id: agencyId,
-                updated_by: accountId,
-                soft_skills: dto.soft_skills ?? [],
-                technical_skills: dto.technical_skills ?? [],
-                languages: dto.languages ?? [],
-                certifications: dto.certifications ?? "",
-            },
+
+        return this.prisma.$transaction(async (tx) => {
+            const subscription = await (tx as any).agencySubscription.findUnique({
+                where: { agency_id: agencyId },
+                include: { plan: true },
+            });
+
+            if (!subscription) {
+                throw new BadRequestException("Agency does not have an active subscription.");
+            }
+
+            if (subscription.plan.name !== 'enterprise' && subscription.used_job_posting >= subscription.plan.job_posting_quota) {
+                throw new BadRequestException("Job posting quota exceeded for your current plan.");
+            }
+
+            const job = await (tx as any).job.create({
+                data: {
+                    ...dto,
+                    agency_id: agencyId,
+                    updated_by: accountId,
+                    soft_skills: dto.soft_skills ?? [],
+                    technical_skills: dto.technical_skills ?? [],
+                    languages: dto.languages ?? [],
+                    certifications: dto.certifications ?? "",
+                    ...(dto.auto_deactivate_at ? { auto_deactivate_at: new Date(dto.auto_deactivate_at) } : {}),
+                },
+            });
+
+            await (tx as any).agencySubscription.update({
+                where: { id: subscription.id },
+                data: {
+                    used_job_posting: {
+                        increment: 1
+                    }
+                }
+            });
+
+            return job;
         });
     }
 
@@ -124,6 +144,7 @@ export class JobService {
                 ...(dto.soft_skills ? { soft_skills: dto.soft_skills } : {}),
                 ...(dto.technical_skills ? { technical_skills: dto.technical_skills } : {}),
                 ...(dto.languages ? { languages: dto.languages } : {}),
+                ...(dto.auto_deactivate_at ? { auto_deactivate_at: new Date(dto.auto_deactivate_at) } : {}),
             }
         });
     }
@@ -148,6 +169,37 @@ export class JobService {
             ...job,
             ...this.resolveJobStatus(job),
         };
+    }
+
+    async deleteJob(accountId: number, jobId: number) {
+        const agencyId = await this.getAgencyId(accountId);
+
+        const jobClient = (this.prisma as unknown as {
+            job: {
+                findFirst: (args: { where: { id: number; agency_id: number }; select: { id: true } }) => Promise<{ id: number } | null>
+                delete: (args: { where: { id: number } }) => Promise<unknown>
+            }
+        }).job;
+
+        const job = await jobClient.findFirst({
+            where: { id: jobId, agency_id: agencyId },
+            select: { id: true },
+        });
+
+        if (!job) {
+            throw new BadRequestException("Job not found or you do not have permission to delete it.");
+        }
+
+        await jobClient.delete({
+            where: { id: jobId },
+        });
+
+        return responseFormatter(
+            null,
+            undefined,
+            "Job deleted successfully.",
+            200
+        );
     }
 
     async getJobResumes(accountId: number, jobId: number, dto: GetJobResumesDto) {

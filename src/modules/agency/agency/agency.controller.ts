@@ -15,6 +15,7 @@ import { SignupDto } from './dto/signup.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { UpdateAgencyDto } from './dto/update-agency.dto';
 import { DashboardSummaryResponseDto } from './dto/dashboard-response.dto';
+import { UpgradeSubscriptionDto } from './dto/upgrade-subscription.dto';
 import { VerifyAccountDto } from './dto/verify-account.dto';
 import { VerifyPasswordResetOtpDto } from './dto/verify-password-reset-otp.dto';
 import { AgencyGoogleLoginDto } from './dto/google-login.dto';
@@ -139,6 +140,38 @@ export class AgencyController {
     @ApiOkResponse({ type: DashboardSummaryResponseDto })
     async getDashboard(@Req() req: { user: AccessTokenPayload }) {
         return this.agencyService.getAgencyDashboard(req.user.id);
+    }
+
+    @Get('subscription/me')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: "Get agency current subscription and plan quotas" })
+    async getMySubscription(@Req() req: { user: AccessTokenPayload }) {
+        return this.agencyService.getSubscription(req.user.id);
+    }
+
+    @Get('subscription/billing-history')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: "Get agency's past 12 billing history invoices via Stripe" })
+    async getBillingHistory(@Req() req: { user: AccessTokenPayload }) {
+        return this.agencyService.getBillingHistory(req.user.id);
+    }
+
+    @Post('subscription/create-checkout-session')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: "Create a Stripe checkout session to resubscribe or upgrade to a plan" })
+    async createCheckoutSession(@Req() req: { user: AccessTokenPayload }, @Body() body: UpgradeSubscriptionDto) {
+        return this.agencyService.createCheckoutSession(req.user.id, body);
+    }
+
+    @Get('subscription/plans')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: "Get all available subscription plans" })
+    async getSubscriptionPlans() {
+        return this.agencyService.getSubscriptionPlans();
     }
 
     @Get('account/me')

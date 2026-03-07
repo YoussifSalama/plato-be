@@ -6,9 +6,10 @@ import { JwtAuthGuard } from 'src/shared/guards/jwt-auth.guard';
 import { JwtService } from 'src/shared/services/jwt.services';
 import { AgencyController } from './agency.controller';
 import { AgencyService } from './agency.service';
+import { StripeModule } from 'src/modules/stripe/stripe.module';
 
 @Module({
-  imports: [PrismaModule, EmailModule],
+  imports: [PrismaModule, EmailModule, StripeModule],
   controllers: [AgencyController],
   providers: [AgencyService, BcryptService, JwtService, JwtAuthGuard],
 })
