@@ -1,5 +1,12 @@
 export type IEnvType = "development" | "test" | "production";
 
+export interface IOpenAiKeyConfig {
+  index: number;
+  envName: string;
+  platoKeyId: string;
+  apiKey: string;
+}
+
 export interface IEnvParams {
   nodeEnv: IEnvType;
   tokens: {
@@ -16,7 +23,7 @@ export interface IEnvParams {
     password?: string;
   };
   openai: {
-    apiKeys: string[];
+    keys: IOpenAiKeyConfig[];
   };
   sendGrid: {
     enabled: boolean;

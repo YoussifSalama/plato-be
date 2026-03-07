@@ -32,7 +32,13 @@ export class ResumeWorker extends WorkerHost {
 
     private async updateResumeAiBatch(
         batch: OpenAI.Batch,
-        context: { jobId: number; agencyId: number; projectIndex: number },
+        context: {
+            jobId: number;
+            agencyId: number;
+            projectIndex: number;
+            openaiKeyPlatoId: string;
+            openaiKeyEnvName: string;
+        },
     ) {
         const { completion_window, metadata, input_file_id, id: batchId } = batch;
         const customerId = metadata?.customer_id ?? null;
@@ -48,6 +54,8 @@ export class ResumeWorker extends WorkerHost {
                     job_id: context.jobId,
                     agency_id: context.agencyId,
                     openai_project_index: context.projectIndex,
+                    openai_key_plato_id: context.openaiKeyPlatoId,
+                    openai_key_env_name: context.openaiKeyEnvName,
                 },
                 batch_id: batchId,
             },
@@ -62,7 +70,12 @@ export class ResumeWorker extends WorkerHost {
         const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
         let attempt = 0;
 
-        const { client: openai, index: projectIndex } = this.openaiService.getRotatedClient();
+        const {
+            client: openai,
+            index: projectIndex,
+            platoKeyId: openaiKeyPlatoId,
+            envName: openaiKeyEnvName,
+        } = this.openaiService.getRotatedClient();
 
         while (attempt <= maxRetries) {
             try {
@@ -80,6 +93,8 @@ export class ResumeWorker extends WorkerHost {
                             job_id: context.jobId,
                             agency_id: context.agencyId,
                             openai_project_index: projectIndex,
+                            openai_key_plato_id: openaiKeyPlatoId,
+                            openai_key_env_name: openaiKeyEnvName,
                         },
                     },
                 });
@@ -92,7 +107,12 @@ export class ResumeWorker extends WorkerHost {
                         agency_id: String(context.agencyId),
                     },
                 });
-                await this.updateResumeAiBatch(batch, { ...context, projectIndex });
+                await this.updateResumeAiBatch(batch, {
+                    ...context,
+                    projectIndex,
+                    openaiKeyPlatoId,
+                    openaiKeyEnvName,
+                });
                 return batch;
             } catch (error) {
                 if (attempt === maxRetries) {

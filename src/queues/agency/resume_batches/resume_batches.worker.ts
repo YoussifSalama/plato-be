@@ -2,14 +2,14 @@ import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Injectable, Logger } from "@nestjs/common";
 import { Job } from "bullmq";
 import { PrismaService } from "src/modules/prisma/prisma.service";
-import { ResumeAiBatchStatus } from "@generated/prisma";
+import { Prisma, ResumeAiBatchStatus } from "@generated/prisma";
 import { Batch } from "openai/resources";
 import * as path from 'path';
 import * as fs from 'fs';
 import { InvitationService } from "src/modules/agency/invitation/invitation.service";
 import { InboxService } from "src/modules/agency/inbox/inbox.service";
 import { ensureUploadsDir } from "src/shared/helpers/storage/uploads-path";
-import { OpenAiService } from "src/shared/services/openai.service";
+import { OpenAiClientDescriptor, OpenAiService } from "src/shared/services/openai.service";
 import { AiCallProducer } from "../ai-call/ai-call.producer";
 
 const batchOutputFolder = ensureUploadsDir("resumes_batches_output");
@@ -58,7 +58,12 @@ export class ResumeBatchesWorker extends WorkerHost {
     /** Get all batches not yet completed in DB */
     private async getAllNotCompletedBatchesFromDb() {
         return this.prisma.resumeProcessingBatch.findMany({
-            where: { status: { notIn: [ResumeAiBatchStatus.completed] } }
+            where: {
+                OR: [
+                    { status: null },
+                    { status: ResumeAiBatchStatus.pending },
+                ],
+            },
         });
     }
 
@@ -120,6 +125,104 @@ export class ResumeBatchesWorker extends WorkerHost {
         });
     }
 
+    private getStatusCodeFromError(error: unknown): number | null {
+        const statusCandidate = (error as { status?: unknown } | null)?.status;
+        return typeof statusCandidate === "number" ? statusCandidate : null;
+    }
+
+    private buildDescriptorFallbackOrder(aiMeta: Record<string, unknown>): OpenAiClientDescriptor[] {
+        const allDescriptors = this.openaiService.getAllClientDescriptors();
+        if (allDescriptors.length === 0) return [];
+
+        const preferredPlatoKeyId = typeof aiMeta.openai_key_plato_id === "string"
+            ? aiMeta.openai_key_plato_id
+            : null;
+        const preferredIndex = typeof aiMeta.openai_project_index === "number"
+            ? aiMeta.openai_project_index
+            : null;
+
+        const ordered: OpenAiClientDescriptor[] = [];
+        const seen = new Set<number>();
+
+        if (preferredPlatoKeyId) {
+            const preferredByPlato = this.openaiService.findDescriptorByPlatoKeyId(preferredPlatoKeyId);
+            if (preferredByPlato) {
+                ordered.push(preferredByPlato);
+                seen.add(preferredByPlato.index);
+            }
+        }
+
+        if (preferredIndex !== null && preferredIndex >= 0 && preferredIndex < allDescriptors.length) {
+            const preferredByIndex = allDescriptors[preferredIndex];
+            if (!seen.has(preferredByIndex.index)) {
+                ordered.push(preferredByIndex);
+                seen.add(preferredByIndex.index);
+            }
+        }
+
+        for (const descriptor of allDescriptors) {
+            if (!seen.has(descriptor.index)) {
+                ordered.push(descriptor);
+                seen.add(descriptor.index);
+            }
+        }
+
+        return ordered;
+    }
+
+    private async updateBatchRoutingMetaByRecordId(
+        recordId: number,
+        currentAiMeta: Record<string, unknown>,
+        descriptor: OpenAiClientDescriptor,
+        batch?: Batch,
+    ) {
+        const nextAiMeta: Record<string, unknown> = {
+            ...currentAiMeta,
+            openai_project_index: descriptor.index,
+            openai_key_plato_id: descriptor.platoKeyId,
+            openai_key_env_name: descriptor.envName,
+        };
+        if (batch) {
+            nextAiMeta.openai_batch = JSON.parse(JSON.stringify(batch));
+        }
+        await this.prisma.resumeProcessingBatch.update({
+            where: { id: recordId },
+            data: { ai_meta: JSON.parse(JSON.stringify(nextAiMeta)) as Prisma.InputJsonValue },
+        });
+        return nextAiMeta;
+    }
+
+    private async markBatchNotFoundAcrossAllKeys(
+        record: { id: number; ai_meta: unknown; batch_id: string | null },
+        attemptedPlatoKeyIds: string[],
+    ) {
+        const existingMeta = (record.ai_meta ?? {}) as Record<string, unknown>;
+        const nextAiMeta: Record<string, unknown> = {
+            ...existingMeta,
+            openai_retrieve_error: {
+                type: "all_keys_404",
+                at: new Date().toISOString(),
+                attempted_plato_key_ids: attemptedPlatoKeyIds,
+                batch_id: record.batch_id,
+            },
+        };
+        await this.prisma.resumeProcessingBatch.update({
+            where: { id: record.id },
+            data: {
+                status: ResumeAiBatchStatus.failed,
+                ai_meta: JSON.parse(JSON.stringify(nextAiMeta)) as Prisma.InputJsonValue,
+            },
+        });
+        await this.createInboxForBatchStatus(
+            { id: record.id, ai_meta: nextAiMeta },
+            ResumeAiBatchStatus.failed,
+            record.batch_id ?? undefined,
+        );
+        this.logger.warn(
+            `Batch ${record.batch_id ?? "unknown"} marked failed after 404 on all keys (${attemptedPlatoKeyIds.join(", ")}).`,
+        );
+    }
+
     private resolveBatchContextFromSources(
         batch: Batch,
         aiMeta?: unknown,
@@ -138,7 +241,12 @@ export class ResumeBatchesWorker extends WorkerHost {
         };
     }
 
-    private async retryFailedBatch(batch: Batch, projectIndex: number) {
+    private async retryFailedBatch(
+        batch: Batch,
+        projectIndex: number,
+        openaiKeyPlatoId: string,
+        openaiKeyEnvName: string,
+    ) {
         const record = await this.getBatchRecordByOpenAiId(batch.id);
         if (!record) {
             this.logger.warn(`ResumeProcessingBatch not found for retry (batchId=${batch.id}).`);
@@ -185,11 +293,16 @@ export class ResumeBatchesWorker extends WorkerHost {
                     ...aiMeta,
                     retry_count: retryCount + 1,
                     previous_batch_ids: [...previousBatchIds, batch.id],
+                    openai_project_index: projectIndex,
+                    openai_key_plato_id: openaiKeyPlatoId,
+                    openai_key_env_name: openaiKeyEnvName,
                     openai_batch: JSON.parse(JSON.stringify(newBatch)),
                 },
             },
         });
-        this.logger.log(`Retried batch ${batch.id} -> ${newBatch.id} (attempt ${retryCount + 1}) [Project ${projectIndex}].`);
+        this.logger.log(
+            `Retried batch ${batch.id} -> ${newBatch.id} (attempt ${retryCount + 1}) [Project ${projectIndex}] [Key ${openaiKeyPlatoId}].`,
+        );
         return true;
     }
 
@@ -576,14 +689,60 @@ export class ResumeBatchesWorker extends WorkerHost {
             if (!batchId) continue;
 
             const aiMeta = (record.ai_meta ?? {}) as Record<string, unknown>;
-            const projectIndex = typeof aiMeta.openai_project_index === "number" ? aiMeta.openai_project_index : 0;
+            const descriptorOrder = this.buildDescriptorFallbackOrder(aiMeta);
+            if (descriptorOrder.length === 0) {
+                this.logger.error(`No OpenAI descriptors available for batch ${batchId}.`);
+                continue;
+            }
 
             try {
-                const openai = this.openaiService.getClient(projectIndex);
-                const batch = await openai.batches.retrieve(batchId);
+                let batch: Batch | null = null;
+                let descriptorUsed: OpenAiClientDescriptor | null = null;
+                const attemptedPlatoKeyIds: string[] = [];
+
+                for (const descriptor of descriptorOrder) {
+                    try {
+                        batch = await descriptor.client.batches.retrieve(batchId);
+                        descriptorUsed = descriptor;
+                        break;
+                    } catch (err) {
+                        const statusCode = this.getStatusCodeFromError(err);
+                        if (statusCode === 404) {
+                            attemptedPlatoKeyIds.push(descriptor.platoKeyId);
+                            this.logger.warn(
+                                `Batch ${batchId} not found with key ${descriptor.platoKeyId} [Project ${descriptor.index}].`,
+                            );
+                            continue;
+                        }
+                        if (statusCode === 401 || statusCode === 403) {
+                            this.logger.error(
+                                `Unauthorized key while retrieving batch ${batchId} with ${descriptor.platoKeyId} [Project ${descriptor.index}].`,
+                                err as any,
+                            );
+                            continue;
+                        }
+                        throw err;
+                    }
+                }
+
+                if (!batch || !descriptorUsed) {
+                    if (attemptedPlatoKeyIds.length === descriptorOrder.length) {
+                        await this.markBatchNotFoundAcrossAllKeys(record, attemptedPlatoKeyIds);
+                    } else {
+                        this.logger.error(
+                            `Failed to retrieve batch ${batchId}; no valid key succeeded.`,
+                        );
+                    }
+                    continue;
+                }
+
+                await this.updateBatchRoutingMetaByRecordId(record.id, aiMeta, descriptorUsed, batch);
+                this.logger.log(
+                    `Retrieved batch ${batchId} with key ${descriptorUsed.platoKeyId} [Project ${descriptorUsed.index}].`,
+                );
 
                 if (batch.status === "completed") {
-                    await this.processBatchOutput(batch, projectIndex);
+                    await this.processBatchOutput(batch, descriptorUsed.index);
                     results.push(batch);
                 } else {
                     const mappedStatus = this.mapOpenAiStatus(batch.status);
@@ -593,7 +752,12 @@ export class ResumeBatchesWorker extends WorkerHost {
                             mappedStatus === ResumeAiBatchStatus.cancelled ||
                             mappedStatus === ResumeAiBatchStatus.expired
                         ) {
-                            const retried = await this.retryFailedBatch(batch, projectIndex);
+                            const retried = await this.retryFailedBatch(
+                                batch,
+                                descriptorUsed.index,
+                                descriptorUsed.platoKeyId,
+                                descriptorUsed.envName,
+                            );
                             if (!retried) {
                                 const batchRecord = await this.updateResumeAiBatch(batch, mappedStatus);
                                 await this.createInboxForBatchStatus(batchRecord, mappedStatus, batch.id);
@@ -605,7 +769,7 @@ export class ResumeBatchesWorker extends WorkerHost {
                     }
                 }
             } catch (err) {
-                this.logger.error(`Failed to retrieve batch ${batchId} [Project ${projectIndex}]`, err as any);
+                this.logger.error(`Failed to retrieve batch ${batchId}`, err as any);
             }
         }
 

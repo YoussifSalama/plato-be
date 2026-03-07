@@ -39,6 +39,7 @@ import { RandomUuidService } from 'src/shared/services/randomuuid.services';
 import AiProfilePrompt from 'src/shared/ai/candidate/ai.profile.prompt';
 import { RealtimeMetricsDto } from './dto/realtime-metrics.dto';
 import { createHash } from "crypto";
+import { IOpenAiKeyConfig } from 'src/shared/types/config/env.types';
 
 @Injectable()
 export class InterviewService {
@@ -56,7 +57,9 @@ export class InterviewService {
         @InjectQueue('candidate_interview_generated_profile')
         private readonly generatedProfileQueue: Queue<{ interviewSessionId: number }>
     ) {
-        const apiKeys = this.configService.get<string[]>("env.openai.apiKeys") ?? [];
+        const apiKeys = (this.configService.get<IOpenAiKeyConfig[]>("env.openai.keys") ?? [])
+            .map((item) => item.apiKey)
+            .filter(Boolean);
         if (!apiKeys.length) throw new Error("No OpenAI API keys configured.");
         this.keyRotator = new OpenAiKeyRotator(apiKeys);
     }
