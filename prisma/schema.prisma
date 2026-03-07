@@ -772,9 +772,29 @@ model InterviewSession{
     updated_at DateTime @updatedAt
 
     inboxes Inbox[]
+    elevenlabs_webhook_events ElevenLabsWebhookEvent[]
 
     @@index([agency_id])
     @@index([invitation_token_id])
+}
+
+model ElevenLabsWebhookEvent {
+    id Int @id @default(autoincrement())
+
+    interview_session_id Int?
+    interview_session InterviewSession? @relation(fields: [interview_session_id], references: [id], onDelete: SetNull)
+
+    conversation_id String?
+    event_type String?
+    source_type String?
+    transition_action String?
+    idempotency_key String @unique
+    payload Json?
+    created_at DateTime @default(now())
+
+    @@index([interview_session_id])
+    @@index([conversation_id])
+    @@index([created_at])
 }
 
 // --- application.prisma ---

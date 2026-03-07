@@ -46,8 +46,12 @@ export default registerAs(
         frontendUrlCandidate: process.env.FRONTEND_URL_CANDIDATE ?? '',
         elevenlabs: {
             apiKey: process.env.ELEVENLABS_API_KEY ?? '',
-            agentId: process.env.ELEVENLABS_AGENT_ID ?? '',
+            agentId: process.env.ELEVENLABS_AGENT_ID ?? undefined,
+            agentIdAr: process.env.ELEVENLABS_AGENT_ID_AR ?? '',
+            agentIdEn: process.env.ELEVENLABS_AGENT_ID_EN ?? '',
             webhookSecret: process.env.ELEVENLABS_WEBHOOK_SECRET ?? '',
+            managedPromptVersion: process.env.ELEVENLABS_MANAGED_PROMPT_VERSION ?? "v1",
+            allowAgentMutation: process.env.ELEVENLABS_ALLOW_AGENT_MUTATION === "true",
         },
     }),
 );

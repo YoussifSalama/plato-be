@@ -62,6 +62,16 @@ export class RealtimeMetricsDto {
     connection_failures: number;
 
     @IsOptional()
+    @IsInt()
+    @Min(0)
+    language_drift_detected?: number;
+
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    dialect_correction_sent?: number;
+
+    @IsOptional()
     @IsString()
     last_failure_reason?: string;
 

@@ -3,8 +3,12 @@
 ## Environment Variables
 
 - `ELEVENLABS_API_KEY`: server-side API key used for signed URL retrieval.
-- `ELEVENLABS_AGENT_ID`: default agent id when frontend does not override.
-- `ELEVENLABS_WEBHOOK_SECRET`: optional HMAC secret for webhook verification.
+- `ELEVENLABS_AGENT_ID_AR`: primary Arabic agent id for interview sessions where language is `ar`.
+- `ELEVENLABS_AGENT_ID_EN`: primary English agent id for interview sessions where language is `en`.
+- `ELEVENLABS_AGENT_ID`: optional fallback agent id used only when a language-specific id is missing.
+- `ELEVENLABS_WEBHOOK_SECRET`: HMAC secret for webhook signature verification.
+- `ELEVENLABS_MANAGED_PROMPT_VERSION`: optional prompt revision marker for backend-managed instructions (defaults to `v1`).
+- `ELEVENLABS_ALLOW_AGENT_MUTATION`: defaults to `false`; when `true`, backend create/update agent endpoints are enabled for admin operations.
 
 ## Endpoints
 
@@ -28,5 +32,8 @@
 
 ## Notes
 
+- Two-agent model is the default operating mode: AR and EN are routed explicitly from backend language context.
+- Dialect handling (for example Egyptian Arabic `ar-EG`) is enforced by backend runtime prompt context, not by creating separate per-dialect agents.
+- Never mutate/publish agents per interview at runtime; keep agent mutation as an explicit admin flow only.
 - Metrics and webhook persistence are intentionally best-effort and should never break active interview flows.
 - For stronger correlation, pass interview session id into conversation dynamic variables in the client/session bootstrap.

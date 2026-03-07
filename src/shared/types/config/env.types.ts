@@ -37,7 +37,11 @@ export interface IEnvParams {
   frontendUrlCandidate: string;
   elevenlabs: {
     apiKey: string;
-    agentId: string;
+    agentId?: string;
+    agentIdAr: string;
+    agentIdEn: string;
     webhookSecret: string;
+    managedPromptVersion: string;
+    allowAgentMutation: boolean;
   };
 }

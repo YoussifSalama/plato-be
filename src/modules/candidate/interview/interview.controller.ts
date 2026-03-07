@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Logger, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiTags } from "@nestjs/swagger";
 import { CandidateJwtAuthGuard } from "src/shared/guards/candidate-jwt-auth.guard";
+import { JwtAuthGuard } from "src/shared/guards/jwt-auth.guard";
 import { AccessTokenPayload } from "src/shared/types/services/jwt.types";
 import { InterviewService } from "./interview.service";
 import { ElevenLabsService } from "./elevenlabs.service";
@@ -303,7 +304,19 @@ export class InterviewController {
                 agentId: body.agent_id,
                 includeConversationId: body.include_conversation_id,
                 interviewSessionId: body.interview_session_id,
+                language: body.language,
             });
+            if (
+                body.interview_session_id &&
+                typeof result.conversation_id === "string" &&
+                result.conversation_id
+            ) {
+                await this.interviewService.recordElevenLabsConversationMapping({
+                    interviewSessionId: body.interview_session_id,
+                    conversationId: result.conversation_id,
+                    agentId: result.agent_id,
+                });
+            }
             this.logger.log(`elevenlabs-signed-url.done ms=${Date.now() - startedAt}`);
             return result;
         } catch (error) {
@@ -339,7 +352,12 @@ export class InterviewController {
     @Post("elevenlabs/post-call-webhook")
     @ApiOperation({ summary: "Receive ElevenLabs post-call webhook events" })
     async handleElevenLabsPostCallWebhook(
-        @Req() req: { body: Record<string, unknown>; headers: Record<string, string | string[] | undefined> }
+        @Req()
+        req: {
+            body: Record<string, unknown>;
+            headers: Record<string, string | string[] | undefined>;
+            rawBody?: Buffer;
+        }
     ) {
         const payload = req.body ?? {};
         const signatureHeaderValue = req.headers["elevenlabs-signature"];
@@ -352,7 +370,7 @@ export class InterviewController {
         const webhookSecret = process.env.ELEVENLABS_WEBHOOK_SECRET ?? "";
 
         if (webhookSecret) {
-            const payloadText = JSON.stringify(payload);
+            const payloadText = req.rawBody?.toString("utf8") ?? JSON.stringify(payload);
             const isValid = verifyElevenLabsWebhookSignature({
                 payload: payloadText,
                 signatureHeader,
@@ -378,5 +396,47 @@ export class InterviewController {
             ].join(" ")
         );
         return { ok: true };
+    }
+
+    @Get("session-context/:interviewSessionId")
+    @ApiOperation({ summary: "Get deterministic ElevenLabs session context" })
+    async getSessionContext(@Param("interviewSessionId") interviewSessionId: string) {
+        return this.interviewService.buildElevenLabsSessionContext(Number(interviewSessionId));
+    }
+
+    @Get("elevenlabs/agents")
+    @ApiOperation({ summary: "List ElevenLabs agents from backend-owned API key" })
+    async listElevenLabsAgents(
+        @Query("page_size") pageSize?: string,
+        @Query("search") search?: string,
+        @Query("archived") archived?: string,
+        @Query("cursor") cursor?: string
+    ) {
+        return this.elevenLabsService.listAgents({
+            pageSize: pageSize ? Number(pageSize) : undefined,
+            search,
+            archived: archived === undefined ? undefined : archived === "true",
+            cursor,
+            showOnlyOwnedAgents: true,
+        });
+    }
+
+    @Post("elevenlabs/agents")
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth("access-token")
+    @ApiOperation({ summary: "Create ElevenLabs agent from backend" })
+    async createElevenLabsAgent(@Body() body: Record<string, unknown>) {
+        return this.elevenLabsService.createAgent(body);
+    }
+
+    @Post("elevenlabs/agents/:agentId/update")
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth("access-token")
+    @ApiOperation({ summary: "Update ElevenLabs agent from backend" })
+    async updateElevenLabsAgent(
+        @Param("agentId") agentId: string,
+        @Body() body: Record<string, unknown>
+    ) {
+        return this.elevenLabsService.updateAgent(agentId, body);
     }
 }

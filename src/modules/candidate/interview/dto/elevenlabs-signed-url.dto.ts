@@ -26,4 +26,12 @@ export class ElevenLabsSignedUrlDto {
     @IsOptional()
     @IsBoolean()
     include_conversation_id?: boolean;
+
+    @ApiPropertyOptional({
+        description: "Interview language used for agent routing",
+        example: "ar",
+    })
+    @IsOptional()
+    @IsString()
+    language?: "ar" | "en";
 }

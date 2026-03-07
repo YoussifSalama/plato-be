@@ -38,6 +38,7 @@ import { SendGridService } from 'src/shared/services/sendgrid.services';
 import { RandomUuidService } from 'src/shared/services/randomuuid.services';
 import AiProfilePrompt from 'src/shared/ai/candidate/ai.profile.prompt';
 import { RealtimeMetricsDto } from './dto/realtime-metrics.dto';
+import { createHash } from "crypto";
 
 @Injectable()
 export class InterviewService {
@@ -173,6 +174,251 @@ export class InterviewService {
             return "Welcome. Let's begin the interview. Please tell me about yourself.";
         }
         return "مرحبا. لنبدأ المقابلة. من فضلك حدثني عن نفسك.";
+    }
+
+    private normalizeInterviewLanguage(value: unknown): "ar" | "en" {
+        return value === "en" ? "en" : "ar";
+    }
+
+    private extractCandidateNameFromSessionContext(params: {
+        candidate: { candidate_name?: string | null; f_name?: string | null; l_name?: string | null } | null;
+        resumeSnapshot: unknown;
+    }): string {
+        const candidateName = params.candidate?.candidate_name?.trim();
+        if (candidateName) return candidateName;
+        const fullName = [params.candidate?.f_name, params.candidate?.l_name]
+            .map((part) => (typeof part === "string" ? part.trim() : ""))
+            .filter(Boolean)
+            .join(" ");
+        if (fullName) return fullName;
+
+        const snapshot = params.resumeSnapshot as
+            | {
+                structured?: { data?: { name?: unknown } };
+                resume?: { name?: unknown };
+            }
+            | undefined;
+        const structuredName = snapshot?.structured?.data?.name;
+        if (typeof structuredName === "string" && structuredName.trim()) {
+            return structuredName.trim();
+        }
+        const resumeName = snapshot?.resume?.name;
+        if (typeof resumeName === "string" && resumeName.trim()) {
+            return resumeName.trim();
+        }
+        return "Candidate";
+    }
+
+    private buildFirstMessage(params: {
+        language: "ar" | "en";
+        candidateName: string;
+        jobTitle: string;
+    }): string {
+        const safeName = params.candidateName.trim() || "Candidate";
+        if (params.language === "en") {
+            return `Hi ${safeName}, I am your interviewer from Plato for the ${params.jobTitle} role. Are you ready to start the interview?`;
+        }
+        return `أهلًا يا ${safeName}، أنا المحاور معاك من Plato لوظيفة ${params.jobTitle}. جاهز نبدأ المقابلة؟`;
+    }
+
+    private buildRealtimeInstructionsFromSnapshots(params: {
+        language: "ar" | "en";
+        agencySnapshot: Record<string, unknown>;
+        jobSnapshot: Record<string, unknown>;
+        resumeSnapshot: Record<string, unknown>;
+        preparedQuestions: string[];
+        customPrompt?: string | null;
+    }): string {
+        const languageLabel = params.language === "ar" ? "Arabic (Egyptian dialect)" : "English";
+        const agencyName =
+            typeof params.agencySnapshot.company_name === "string" ? params.agencySnapshot.company_name : "N/A";
+        const jobTitle =
+            typeof params.jobSnapshot.title === "string" ? params.jobSnapshot.title : "N/A";
+        const jobDescription =
+            typeof params.jobSnapshot.description === "string" ? params.jobSnapshot.description : "N/A";
+        const jobRequirements =
+            typeof params.jobSnapshot.requirements === "string" ? params.jobSnapshot.requirements : "N/A";
+        const resumeParsed =
+            typeof (params.resumeSnapshot.resume as { parsed?: unknown } | undefined)?.parsed === "string"
+                ? ((params.resumeSnapshot.resume as { parsed?: string }).parsed ?? "")
+                : "No resume text available.";
+        const preparedBlock =
+            params.preparedQuestions.length > 0
+                ? params.preparedQuestions.map((question, index) => `${index + 1}. ${question}`).join("\n")
+                : "No mandatory prepared questions provided.";
+        const customPromptBlock = params.customPrompt?.trim()
+            ? `\nAdditional backend instructions:\n${params.customPrompt.trim()}`
+            : "";
+        const v3AllowedAudioTags =
+            "[laughs], [chuckles], [sighs], [whispers], [excited], [curious], [thoughtful], [surprised], [calm], [short pause], [long pause]";
+
+        return [
+            "System role: Plato interview agent.",
+            `Interview language lock: ${languageLabel}.`,
+            params.language === "ar"
+                ? "Arabic rule: speak only Egyptian Arabic naturally; avoid MSA/formal Arabic and avoid English leakage."
+                : "English rule: speak only clear natural English.",
+            "Model mode: Eleven v3 audio tags only.",
+            "Tag policy: use audio tags sparingly and only when they improve natural spoken delivery.",
+            `Allowed audio tags (v3): ${v3AllowedAudioTags}.`,
+            "Forbidden tags: all SSML/XML forms such as <break>, <phoneme>, <prosody>, <speak>, and any closing XML tags.",
+            "Do not mention or read tag syntax rules aloud unless the candidate explicitly asks about them.",
+            "Normalize text for speech: expand numbers, dates, currencies, abbreviations, URLs, and symbols into spoken-friendly words.",
+            "Never mention internal tools, emit/function/event names, or technical actions out loud.",
+            "When cancel/postpone/complete is confirmed by candidate, execute the corresponding tool silently.",
+            `Agency: ${agencyName}`,
+            `Job title: ${jobTitle}`,
+            `Job description: ${jobDescription}`,
+            `Job requirements: ${jobRequirements}`,
+            `Resume text:\n${resumeParsed}`,
+            `Prepared questions:\n${preparedBlock}`,
+            customPromptBlock,
+        ].join("\n");
+    }
+
+    async buildElevenLabsSessionContext(interviewSessionId: number) {
+        const session = await this.prisma.interviewSession.findUnique({
+            where: { id: interviewSessionId },
+            include: {
+                invitation_token: {
+                    include: {
+                        candidate: true,
+                        interview_resource: true,
+                    },
+                },
+            },
+        });
+        if (!session || !session.invitation_token?.interview_resource) {
+            throw new BadRequestException("Interview session context not found.");
+        }
+        const resources = session.invitation_token.interview_resource;
+        const language = this.normalizeInterviewLanguage(resources.language);
+        const agencySnapshot =
+            resources.agency_snapshot && typeof resources.agency_snapshot === "object"
+                ? (resources.agency_snapshot as Record<string, unknown>)
+                : {};
+        const jobSnapshot =
+            resources.job_snapshot && typeof resources.job_snapshot === "object"
+                ? (resources.job_snapshot as Record<string, unknown>)
+                : {};
+        const resumeSnapshot =
+            resources.resume_snapshot && typeof resources.resume_snapshot === "object"
+                ? (resources.resume_snapshot as Record<string, unknown>)
+                : {};
+        const preparedQuestions = Array.isArray(resources.prepared_questions)
+            ? resources.prepared_questions.filter((item): item is string => typeof item === "string" && !!item.trim())
+            : [];
+        const customPromptRaw = jobSnapshot.jobAiPrompt;
+        const customPrompt =
+            typeof customPromptRaw === "string"
+                ? customPromptRaw
+                : customPromptRaw && typeof customPromptRaw === "object" && "prompt" in customPromptRaw
+                    ? typeof (customPromptRaw as { prompt?: unknown }).prompt === "string"
+                        ? (customPromptRaw as { prompt?: string }).prompt
+                        : null
+                    : null;
+        const candidateName = this.extractCandidateNameFromSessionContext({
+            candidate: session.invitation_token.candidate,
+            resumeSnapshot,
+        });
+        const jobTitle = typeof jobSnapshot.title === "string" && jobSnapshot.title.trim()
+            ? jobSnapshot.title.trim()
+            : "the role";
+        const firstMessage = this.buildFirstMessage({
+            language,
+            candidateName,
+            jobTitle,
+        });
+        const instructions = this.buildRealtimeInstructionsFromSnapshots({
+            language,
+            agencySnapshot,
+            jobSnapshot,
+            resumeSnapshot,
+            preparedQuestions,
+            customPrompt,
+        });
+        const contextVersion = createHash("sha1")
+            .update(`${resources.updated_at.toISOString()}|${language}|${jobTitle}|${preparedQuestions.join("|")}`)
+            .digest("hex")
+            .slice(0, 12);
+
+        return {
+            interview_session_id: session.id,
+            language,
+            dialect: language === "ar" ? "ar-EG" : "en",
+            candidate_name: candidateName,
+            first_message: firstMessage,
+            instructions,
+            dynamic_variables: {
+                interview_session_id: String(session.id),
+                interview_language: language,
+                interview_dialect: language === "ar" ? "ar-EG" : "en",
+                candidate_name: candidateName,
+            },
+            context_version: contextVersion,
+        };
+    }
+
+    async recordElevenLabsConversationMapping(params: {
+        interviewSessionId: number;
+        conversationId: string;
+        agentId: string;
+    }) {
+        const session = await this.prisma.interviewSession.findUnique({
+            where: { id: params.interviewSessionId },
+            select: { id: true, qa_log: true },
+        });
+        if (!session) {
+            return;
+        }
+        const existingLog = Array.isArray(session.qa_log) ? [...session.qa_log] : [];
+        existingLog.push({
+            event: "elevenlabs_conversation_mapping",
+            happened_at: new Date().toISOString(),
+            conversation_id: params.conversationId,
+            agent_id: params.agentId,
+        });
+        await this.prisma.interviewSession.update({
+            where: { id: params.interviewSessionId },
+            data: { qa_log: existingLog as unknown as Prisma.InputJsonValue },
+        });
+    }
+
+    private async resolveSessionIdFromConversationId(conversationId: string): Promise<number | null> {
+        const sessions = await this.prisma.interviewSession.findMany({
+            orderBy: { updated_at: "desc" },
+            take: 200,
+            select: { id: true, qa_log: true },
+        });
+        for (const session of sessions) {
+            const entries = Array.isArray(session.qa_log) ? session.qa_log : [];
+            const matched = entries.some((entry) => {
+                if (!entry || typeof entry !== "object") return false;
+                const payload = entry as { event?: unknown; conversation_id?: unknown };
+                return (
+                    payload.event === "elevenlabs_conversation_mapping" &&
+                    payload.conversation_id === conversationId
+                );
+            });
+            if (matched) {
+                return session.id;
+            }
+        }
+        return null;
+    }
+
+    private detectWebhookTransitionAction(payload: Record<string, unknown>): "complete" | "cancel" | "postpone" | null {
+        const asText = JSON.stringify(payload).toLowerCase();
+        if (/(interview_complete|complete_interview|interview-complete)/.test(asText)) {
+            return "complete";
+        }
+        if (/(interview_cancelled|interview_cancel|cancel_interview|interview-cancel)/.test(asText)) {
+            return "cancel";
+        }
+        if (/(interview_postponed|interview_postpone|postpone_interview|reschedule_interview|interview-postpone)/.test(asText)) {
+            return "postpone";
+        }
+        return null;
     }
 
     private async generateInterviewPreparedQuestions(
@@ -453,9 +699,12 @@ export class InterviewService {
 
         this.notifyInterviewStatus(session.id, InterviewSessionStatus.active).catch(() => { });
 
+        const runtimeContext = await this.buildElevenLabsSessionContext(session.id);
+
         return {
             interview_session_id: session.id,
             language: selectedLanguage,
+            runtime_context: runtimeContext,
         };
     }
 
@@ -1424,33 +1673,80 @@ export class InterviewService {
         payload: Record<string, unknown>;
         interviewSessionId?: number | null;
     }) {
-        const interviewSessionId = params.interviewSessionId ?? null;
-        if (!interviewSessionId) {
+        const payloadConversationId =
+            typeof params.payload.conversation_id === "string"
+                ? params.payload.conversation_id
+                : params.payload?.data &&
+                    typeof params.payload.data === "object" &&
+                    typeof (params.payload.data as { conversation_id?: unknown }).conversation_id === "string"
+                    ? ((params.payload.data as { conversation_id?: string }).conversation_id ?? null)
+                    : null;
+
+        const resolvedSessionId =
+            params.interviewSessionId ??
+            (payloadConversationId ? await this.resolveSessionIdFromConversationId(payloadConversationId) : null);
+        if (!resolvedSessionId) {
             return;
         }
 
         const session = await this.prisma.interviewSession.findUnique({
-            where: { id: interviewSessionId },
-            select: { id: true, qa_log: true },
+            where: { id: resolvedSessionId },
+            select: { id: true, status: true, qa_log: true },
         });
         if (!session) {
             return;
         }
 
-        const existingLog = Array.isArray(session.qa_log) ? [...session.qa_log] : [];
-        const eventType =
+        const transitionAction = this.detectWebhookTransitionAction(params.payload);
+        const sourceType =
             typeof params.payload.type === "string" ? params.payload.type : "unknown_post_call_event";
+        const transitionEventKey = createHash("sha1")
+            .update(`${sourceType}|${payloadConversationId ?? "none"}|${transitionAction ?? "none"}|${JSON.stringify(params.payload)}`)
+            .digest("hex");
+
+        const existingLog = Array.isArray(session.qa_log) ? [...session.qa_log] : [];
         const payloadData =
             params.payload && typeof params.payload === "object" && "data" in params.payload
                 ? (params.payload as { data?: unknown }).data
                 : params.payload;
+        const alreadyProcessed = existingLog.some((entry) => {
+            if (!entry || typeof entry !== "object") return false;
+            return (entry as { idempotency_key?: unknown }).idempotency_key === transitionEventKey;
+        });
+        if (alreadyProcessed) {
+            return;
+        }
 
         existingLog.push({
             event: "elevenlabs_post_call_webhook",
-            webhook_type: eventType,
+            webhook_type: sourceType,
             happened_at: new Date().toISOString(),
+            idempotency_key: transitionEventKey,
+            transition_action: transitionAction,
             data: this.toPrismaJsonValue(payloadData),
         });
+
+        if (transitionAction) {
+            try {
+                if (transitionAction === "complete" && session.status !== InterviewSessionStatus.completed) {
+                    await this.completeInterviewSession(session.id);
+                } else if (transitionAction === "cancel" && session.status !== InterviewSessionStatus.cancelled) {
+                    await this.cancelInterviewSession(session.id);
+                } else if (
+                    transitionAction === "postpone" &&
+                    session.status !== InterviewSessionStatus.postponed
+                ) {
+                    await this.postponeInterviewSession(session.id, "immediate");
+                }
+            } catch (error) {
+                existingLog.push({
+                    event: "elevenlabs_post_call_transition_error",
+                    happened_at: new Date().toISOString(),
+                    transition_action: transitionAction,
+                    message: error instanceof Error ? error.message : "unknown transition failure",
+                });
+            }
+        }
 
         await this.prisma.interviewSession.update({
             where: { id: session.id },
