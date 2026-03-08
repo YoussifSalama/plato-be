@@ -222,9 +222,12 @@ export class InterviewService {
     }): string {
         const safeName = params.candidateName.trim() || "Candidate";
         if (params.language === "en") {
-            return `Hi ${safeName}, I am your interviewer from Plato for the ${params.jobTitle} role. Are you ready to start the interview?`;
+            return `Hi ${safeName}! How are you doing today? Um... so, are you ready to get started with the interview?`;
         }
-        return `أهلًا يا ${safeName}، أنا المحاور معاك من Plato لوظيفة ${params.jobTitle}. جاهز نبدأ المقابلة؟`;
+        return `
+        ازيك يا ${safeName} , ايه الاخبار ؟...
+        جاهز للانترفيو ولا ايه؟
+        `;
     }
 
     private buildRealtimeInstructionsFromSnapshots(params: {
@@ -707,7 +710,7 @@ export class InterviewService {
         this.notifyInterviewStatus(session.id, InterviewSessionStatus.active).catch(() => { });
 
         const runtimeContext = await this.buildElevenLabsSessionContext(session.id);
-
+        this.logger.log(`[startInterviewSession] lang=${selectedLanguage} runtimeContext=${JSON.stringify(runtimeContext)}`);
         return {
             interview_session_id: session.id,
             language: selectedLanguage,
