@@ -275,7 +275,7 @@ export class InterviewService {
             "Normalize text for speech: expand numbers, dates, currencies, abbreviations, URLs, and symbols into spoken-friendly words.",
             "Never mention internal tools, emit/function/event names, or technical actions out loud.",
             "When cancel/postpone/complete is confirmed by candidate, execute the corresponding tool silently.",
-            params.language === "ar" ? INTERVIEW_FLOW_BLOCK_AR : INTERVIEW_FLOW_BLOCK,
+            // params.language === "ar" ? INTERVIEW_FLOW_BLOCK_AR : INTERVIEW_FLOW_BLOCK,
             `Agency: ${agencyName}`,
             `Job title: ${jobTitle}`,
             `Job description: ${jobDescription}`,
