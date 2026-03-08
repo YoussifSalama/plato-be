@@ -222,7 +222,7 @@ export class InterviewService {
     }): string {
         const safeName = params.candidateName.trim() || "Candidate";
         if (params.language === "en") {
-            return `Hi ${safeName}! How are you doing today? Um... so, are you ready to get started with the interview?`;
+            return `Hi ${safeName}! I hope you're doing well, I'll be conducting your interview for the ${params.jobTitle} role today. To start us off, could you tell me a bit about your background?`;
         }
         return `
         ازيك يا ${safeName} , ايه الاخبار ؟...
@@ -275,6 +275,11 @@ export class InterviewService {
             "Normalize text for speech: expand numbers, dates, currencies, abbreviations, URLs, and symbols into spoken-friendly words.",
             "Never mention internal tools, emit/function/event names, or technical actions out loud.",
             "When cancel/postpone/complete is confirmed by candidate, execute the corresponding tool silently.",
+            "Do not wait for the candidate to say they are ready; once the first message is sent, proceed directly to the interview questions.",
+            "If the candidate says 'let's go' or 'I am ready', immediately ask the first question from the 'Prepared questions' list.",
+            "Do not wait for the candidate to say they are ready; once the first message is sent, proceed directly to the interview questions.",
+            "If the candidate says 'let's go' or 'I am ready', immediately ask the first question from the 'Prepared questions' list.",
+
             // params.language === "ar" ? INTERVIEW_FLOW_BLOCK_AR : INTERVIEW_FLOW_BLOCK,
             `Agency: ${agencyName}`,
             `Job title: ${jobTitle}`,
