@@ -230,6 +230,11 @@ export class InterviewService {
         `;
     }
 
+    private condenseText(text: string, maxLen: number): string {
+        if (text.length <= maxLen) return text;
+        return text.slice(0, maxLen) + "\n[truncated for brevity]";
+    }
+
     private buildRealtimeInstructionsFromSnapshots(params: {
         language: "ar" | "en";
         agencySnapshot: Record<string, unknown>;
@@ -261,7 +266,8 @@ export class InterviewService {
         const v3AllowedAudioTags =
             "[chuckles], [sighs], [whispers], [serious], [thoughtful], [calm], [short pause], [long pause]";
 
-        return [
+        const result = [
+            params.language === "ar" ? INTERVIEW_FLOW_BLOCK_AR : INTERVIEW_FLOW_BLOCK,
             "System role: Plato interview agent.",
             `Interview language lock: ${languageLabel}.`,
             params.language === "ar"
@@ -277,18 +283,16 @@ export class InterviewService {
             "When cancel/postpone/complete is confirmed by candidate, execute the corresponding tool silently.",
             "Do not wait for the candidate to say they are ready; once the first message is sent, proceed directly to the interview questions.",
             "If the candidate says 'let's go' or 'I am ready', immediately ask the first question from the 'Prepared questions' list.",
-            "Do not wait for the candidate to say they are ready; once the first message is sent, proceed directly to the interview questions.",
-            "If the candidate says 'let's go' or 'I am ready', immediately ask the first question from the 'Prepared questions' list.",
-
-            // params.language === "ar" ? INTERVIEW_FLOW_BLOCK_AR : INTERVIEW_FLOW_BLOCK,
             `Agency: ${agencyName}`,
             `Job title: ${jobTitle}`,
-            `Job description: ${jobDescription}`,
+            `Job description:\n${this.condenseText(jobDescription, 400)}`,
             `Job requirements: ${jobRequirements}`,
-            `Resume text:\n${resumeParsed}`,
+            `Resume (key points only):\n${this.condenseText(resumeParsed, 600)}`,
             `Prepared questions:\n${preparedBlock}`,
             customPromptBlock,
         ].join("\n");
+        this.logger.log(`[buildRealtimeInstructions] lang=${params.language} agency=${agencyName} job=${jobTitle} resumeLen=${resumeParsed.length} questions=${params.preparedQuestions.length}`);
+        return result;
     }
 
     async buildElevenLabsSessionContext(interviewSessionId: number) {
