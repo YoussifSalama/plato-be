@@ -259,7 +259,7 @@ export class InterviewService {
             ? `\nAdditional backend instructions:\n${params.customPrompt.trim()}`
             : "";
         const v3AllowedAudioTags =
-            "[laughs], [chuckles], [sighs], [whispers], [excited], [curious], [thoughtful], [surprised], [calm], [short pause], [long pause]";
+            "[chuckles], [sighs], [whispers], [serious], [thoughtful], [calm], [short pause], [long pause]";
 
         return [
             "System role: Plato interview agent.",
