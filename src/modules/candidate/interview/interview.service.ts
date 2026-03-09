@@ -17,7 +17,7 @@ import { PrismaService } from 'src/modules/prisma/prisma.service';
 import { SpeechService } from 'src/modules/speech/speech.service';
 import AiInterviewPrompt from 'src/shared/ai/candidate/prompts/ai.interview.prompt';
 import GenerateReferenceQuestions from 'src/shared/ai/candidate/prompts/ai.refrence.prompt';
-import { buildInterviewFlowBlock, buildInterviewFlowBlockAr, InterviewFlowContext } from 'src/shared/ai/candidate/prompts/elevenlabs.interview-flow.prompt';
+// import { buildInterviewFlowBlock, buildInterviewFlowBlockAr, InterviewFlowContext } from 'src/shared/ai/candidate/prompts/elevenlabs.interview-flow.prompt';
 import { InterviewLanguage } from './dto/create-interview-resources.dto';
 import responseFormatter from 'src/shared/helpers/response';
 import {
@@ -161,6 +161,82 @@ export class InterviewService {
         return JSON.parse(JSON.stringify(value));
     }
 
+    /** Serialize a value for use as a dynamic variable in system prompts (always returns string) */
+    private toDynamicVar(value: unknown): string {
+        if (value === null || value === undefined) return "";
+        if (typeof value === "string") return value;
+        if (typeof value === "number" || typeof value === "boolean") return String(value);
+        if (value instanceof Date) return value.toISOString();
+        if (Array.isArray(value)) {
+            const items = value.map((v) => (typeof v === "object" && v !== null ? JSON.stringify(v) : String(v)));
+            return items.join(", ");
+        }
+        if (typeof value === "object" && "toString" in value && typeof (value as { toString: () => string }).toString === "function") {
+            const str = (value as { toString: () => string }).toString();
+            if (str && str !== "[object Object]") return str;
+        }
+        return JSON.stringify(value);
+    }
+
+    /** Build field-by-field dynamic variables from agency, job, and resume snapshots for system prompt interpolation */
+    private buildFieldByFieldDynamicVariables(params: {
+        agencySnapshot: Record<string, unknown>;
+        jobSnapshot: Record<string, unknown>;
+        resumeSnapshot: Record<string, unknown>;
+    }): Record<string, string> {
+        const { agencySnapshot, jobSnapshot, resumeSnapshot } = params;
+        const sv = (v: unknown) => this.toDynamicVar(v);
+
+        const agency = agencySnapshot ?? {};
+        const job = jobSnapshot ?? {};
+        const resume = resumeSnapshot ?? {};
+        const resumeResume = (resume.resume as Record<string, unknown>) ?? {};
+        const resumeStructured = (resume.structured as Record<string, unknown>) ?? {};
+        const resumeAnalysis = (resume.analysis as Record<string, unknown>) ?? {};
+
+        return {
+            // Agency fields
+            agency_company_name: sv(agency.company_name),
+            agency_organization_url: sv(agency.organization_url),
+            agency_company_size: sv(agency.company_size),
+            agency_company_industry: sv(agency.company_industry),
+            agency_company_description: sv(agency.company_description),
+
+            // Job fields
+            job_title: sv(job.title),
+            job_workplace_type: sv(job.workplace_type),
+            job_employment_type: sv(job.employment_type),
+            job_seniority_level: sv(job.seniority_level),
+            job_industry: sv(job.industry),
+            job_location: sv(job.location),
+            job_is_active: sv(job.is_active),
+            job_auto_deactivate_at: sv(job.auto_deactivate_at),
+            job_salary_currency: sv(job.salary_currency),
+            job_salary_from: sv(job.salary_from),
+            job_salary_to: sv(job.salary_to),
+            job_is_salary_negotiable: sv(job.is_salary_negotiable),
+            job_description: sv(job.description),
+            job_requirements: sv(job.requirements),
+            job_certifications: sv(job.certifications),
+            job_company_overview: sv(job.company_overview),
+            job_role_overview: sv(job.role_overview),
+            job_responsibilities: sv(job.responsibilities),
+            job_nice_to_have: sv(job.nice_to_have),
+            job_what_we_offer: sv(job.what_we_offer),
+            job_benefits: sv(job.job_benefits),
+            job_soft_skills: sv(job.soft_skills),
+            job_technical_skills: sv(job.technical_skills),
+            job_languages: sv(job.languages),
+
+            // Resume fields (from resume, structured.data, analysis)
+            resume_data: sv(resumeStructured.data),
+            resume_score: sv(resumeAnalysis.score),
+            resume_seniority_level: sv(resumeAnalysis.seniority_level),
+            resume_recommendation: sv(resumeAnalysis.recommendation),
+            resume_insights: sv(resumeAnalysis.insights),
+        };
+    }
+
     private async withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
         let timeoutId: NodeJS.Timeout | null = null;
         try {
@@ -233,108 +309,112 @@ export class InterviewService {
         return text.slice(0, maxLen) + "\n[truncated for brevity]";
     }
 
-    private buildRealtimeInstructionsFromSnapshots(params: {
-        language: "ar" | "en";
-        candidateName: string;
-        agencySnapshot: Record<string, unknown>;
-        jobSnapshot: Record<string, unknown>;
-        resumeSnapshot: Record<string, unknown>;
-        preparedQuestions: string[];
-        customPrompt?: string | null;
-    }): string {
-        const languageLabel = params.language === "ar" ? "Arabic (Egyptian dialect)" : "English";
+    // private buildRealtimeInstructionsFromSnapshots(params: {
+    //     language: "ar" | "en";
+    //     candidateName: string;
+    //     agencySnapshot: Record<string, unknown>;
+    //     jobSnapshot: Record<string, unknown>;
+    //     resumeSnapshot: Record<string, unknown>;
+    //     preparedQuestions: string[];
+    //     customPrompt?: string | null;
+    // }): string {
+    //     const languageLabel = params.language === "ar" ? "Arabic (Egyptian dialect)" : "English";
 
-        // Agency data
-        const agencyName =
-            typeof params.agencySnapshot.company_name === "string" && params.agencySnapshot.company_name.trim()
-                ? params.agencySnapshot.company_name.trim()
-                : "N/A";
-        const agencyIndustry =
-            typeof params.agencySnapshot.company_industry === "string" && params.agencySnapshot.company_industry.trim()
-                ? params.agencySnapshot.company_industry.trim()
-                : "N/A";
-        const agencySize =
-            typeof params.agencySnapshot.company_size === "string" && params.agencySnapshot.company_size.trim()
-                ? params.agencySnapshot.company_size.trim()
-                : "N/A";
-        const agencyDescription =
-            typeof params.agencySnapshot.company_description === "string" && params.agencySnapshot.company_description.trim()
-                ? this.condenseText(params.agencySnapshot.company_description.trim(), 300)
-                : "N/A";
+    //     // Agency data
+    //     const agencyName =
+    //         typeof params.agencySnapshot.company_name === "string" && params.agencySnapshot.company_name.trim()
+    //             ? params.agencySnapshot.company_name.trim()
+    //             : "N/A";
+    //     const agencyIndustry =
+    //         typeof params.agencySnapshot.company_industry === "string" && params.agencySnapshot.company_industry.trim()
+    //             ? params.agencySnapshot.company_industry.trim()
+    //             : "N/A";
+    //     const agencySize =
+    //         typeof params.agencySnapshot.company_size === "string" && params.agencySnapshot.company_size.trim()
+    //             ? params.agencySnapshot.company_size.trim()
+    //             : "N/A";
+    //     const agencyDescription =
+    //         typeof params.agencySnapshot.company_description === "string" && params.agencySnapshot.company_description.trim()
+    //             ? this.condenseText(params.agencySnapshot.company_description.trim(), 300)
+    //             : "N/A";
 
-        // Job data
-        const jobTitle =
-            typeof params.jobSnapshot.title === "string" ? params.jobSnapshot.title : "N/A";
-        const jobDescription =
-            typeof params.jobSnapshot.description === "string"
-                ? this.condenseText(params.jobSnapshot.description, 400)
-                : "N/A";
-        const jobRequirements =
-            typeof params.jobSnapshot.requirements === "string" ? params.jobSnapshot.requirements : "N/A";
+    //     // Job data
+    //     const jobTitle =
+    //         typeof params.jobSnapshot.title === "string" ? params.jobSnapshot.title : "N/A";
+    //     const jobDescription =
+    //         typeof params.jobSnapshot.description === "string"
+    //             ? this.condenseText(params.jobSnapshot.description, 400)
+    //             : "N/A";
+    //     const jobRequirements =
+    //         typeof params.jobSnapshot.requirements === "string" ? params.jobSnapshot.requirements : "N/A";
 
-        // Resume data
-        const resumeRaw = params.resumeSnapshot.resume as Record<string, unknown> | undefined;
-        const resumeStructuredRaw = params.resumeSnapshot.structured;
-        const resumeAnalysisRaw = params.resumeSnapshot.analysis;
+    //     // Resume data
+    //     const resumeRaw = params.resumeSnapshot.resume as Record<string, unknown> | undefined;
+    //     const resumeStructuredRaw = params.resumeSnapshot.structured;
+    //     const resumeAnalysisRaw = params.resumeSnapshot.analysis;
 
-        const resumeStructured =
-            typeof resumeStructuredRaw === "string" && resumeStructuredRaw.trim()
-                ? this.condenseText(resumeStructuredRaw.trim(), 800)
-                : typeof resumeRaw?.parsed === "string" && resumeRaw.parsed.trim()
-                    ? this.condenseText(resumeRaw.parsed.trim(), 800)
-                    : "No structured resume available.";
+    //     const resumeStructured =
+    //         typeof resumeStructuredRaw === "string" && resumeStructuredRaw.trim()
+    //             ? this.condenseText(resumeStructuredRaw.trim(), 800)
+    //             : typeof resumeRaw?.parsed === "string" && resumeRaw.parsed.trim()
+    //                 ? this.condenseText(resumeRaw.parsed.trim(), 800)
+    //                 : "No structured resume available.";
 
-        const resumeAnalysis =
-            typeof resumeAnalysisRaw === "string" && resumeAnalysisRaw.trim()
-                ? this.condenseText(resumeAnalysisRaw.trim(), 600)
-                : typeof resumeAnalysisRaw === "object" && resumeAnalysisRaw !== null
-                    ? this.condenseText(JSON.stringify(resumeAnalysisRaw), 600)
-                    : "No resume analysis available.";
+    //     const resumeAnalysis =
+    //         typeof resumeAnalysisRaw === "string" && resumeAnalysisRaw.trim()
+    //             ? this.condenseText(resumeAnalysisRaw.trim(), 600)
+    //             : typeof resumeAnalysisRaw === "object" && resumeAnalysisRaw !== null
+    //                 ? this.condenseText(JSON.stringify(resumeAnalysisRaw), 600)
+    //                 : "No resume analysis available.";
 
-        const customPromptBlock = params.customPrompt?.trim()
-            ? `\n==================================================\nADDITIONAL INSTRUCTIONS FROM HIRING MANAGER\n==================================================\n${params.customPrompt.trim()}`
-            : "";
+    //     const customPromptBlock = params.customPrompt?.trim()
+    //         ? `\n==================================================\nADDITIONAL INSTRUCTIONS FROM HIRING MANAGER\n==================================================\n${params.customPrompt.trim()}`
+    //         : "";
 
-        const ctx: InterviewFlowContext = {
-            agencyName,
-            agencyIndustry,
-            agencySize,
-            agencyDescription,
-            jobTitle,
-            jobDescription,
-            jobRequirements,
-            candidateName: params.candidateName,
-            resumeStructured,
-            resumeAnalysis,
-            preparedQuestions: params.preparedQuestions,
-        };
+    //     const ctx: InterviewFlowContext = {
+    //         agencyName,
+    //         agencyIndustry,
+    //         agencySize,
+    //         agencyDescription,
+    //         jobTitle,
+    //         jobDescription,
+    //         jobRequirements,
+    //         candidateName: params.candidateName,
+    //         resumeStructured,
+    //         resumeAnalysis,
+    //         preparedQuestions: params.preparedQuestions,
+    //     };
 
-        const flowBlock = params.language === "ar"
-            ? buildInterviewFlowBlockAr(ctx)
-            : buildInterviewFlowBlock(ctx);
+    //     const flowBlock = params.language === "ar"
+    //         ? buildInterviewFlowBlockAr(ctx)
+    //         : buildInterviewFlowBlock(ctx);
 
-        const result = [
-            `# IDENTITY: You are Plato, a senior recruiter working for ${agencyName}.`,
-            `# CURRENT TASK: You are interviewing ${params.candidateName} for the ${jobTitle} position.`,
-            `# MANDATORY: You work for ${agencyName} only — NOT Google, Amazon, or any other company.`,
-            flowBlock,
-            `Interview language lock: ${languageLabel}.`,
-            params.language === "ar"
-                ? "Arabic rule: speak only Egyptian Arabic naturally; avoid MSA/formal Arabic and avoid English leakage."
-                : "English rule: speak only clear natural English.",
-            "Normalize text for speech: expand numbers, dates, currencies, abbreviations, URLs, and symbols into spoken-friendly words.",
-            "Never mention internal tools, emit/function/event names, or technical actions out loud.",
-            "When cancel/postpone/complete is confirmed by candidate, execute the corresponding tool silently.",
-            customPromptBlock,
-            `# REMINDER: You are Plato at ${agencyName}. The candidate is ${params.candidateName}. The role is ${jobTitle}.`,
-            `# START NOW: Do not ask if they are ready. Proceed to Phase 1 immediately after your greeting.`,
-        ].join("\n");
+    //     const result = [
+    //         `# IDENTITY: You are Plato, a senior recruiter working for ${agencyName}.`,
+    //         `# CURRENT TASK: You are interviewing ${params.candidateName} for the ${jobTitle} position.`,
+    //         `# MANDATORY: You work for ${agencyName} only — NOT Google, Amazon, or any other company.`,
+    //         flowBlock,
+    //         `Interview language lock: ${languageLabel}.`,
+    //         params.language === "ar"
+    //             ? "Arabic rule: speak only Egyptian Arabic naturally; avoid MSA/formal Arabic and avoid English leakage."
+    //             : "English rule: speak only clear natural English.",
+    //         "Normalize text for speech: expand numbers, dates, currencies, abbreviations, URLs, and symbols into spoken-friendly words.",
+    //         "Never mention internal tools, emit/function/event names, or technical actions out loud.",
+    //         "When cancel/postpone/complete is confirmed by candidate, execute the corresponding tool silently.",
+    //         customPromptBlock,
+    //         `# REMINDER: You are Plato at ${agencyName}. The candidate is ${params.candidateName}. The role is ${jobTitle}.`,
+    //         `# START NOW: Do not ask if they are ready. Proceed to Phase 1 immediately after your greeting.`,
+    //     ].join("\n");
 
-        this.logger.log(
-            `[buildRealtimeInstructions] lang=${params.language} agency=${agencyName} job=${jobTitle} ` +
-            `resumeLen=${resumeStructured.length} analysisLen=${resumeAnalysis.length} questions=${params.preparedQuestions.length}`
-        );
-        return result;
+    //     this.logger.log(
+    //         `[buildRealtimeInstructions] lang=${params.language} agency=${agencyName} job=${jobTitle} ` +
+    //         `resumeLen=${resumeStructured.length} analysisLen=${resumeAnalysis.length} questions=${params.preparedQuestions.length}`
+    //     );
+    //     return result;
+    // }
+
+    private dynamicVariablesObjGenerator = () => {
+
     }
 
     async buildElevenLabsSessionContext(interviewSessionId: number) {
@@ -369,15 +449,15 @@ export class InterviewService {
         const preparedQuestions = Array.isArray(resources.prepared_questions)
             ? resources.prepared_questions.filter((item): item is string => typeof item === "string" && !!item.trim())
             : [];
-        const customPromptRaw = jobSnapshot.jobAiPrompt;
-        const customPrompt =
-            typeof customPromptRaw === "string"
-                ? customPromptRaw
-                : customPromptRaw && typeof customPromptRaw === "object" && "prompt" in customPromptRaw
-                    ? typeof (customPromptRaw as { prompt?: unknown }).prompt === "string"
-                        ? (customPromptRaw as { prompt?: string }).prompt
-                        : null
-                    : null;
+        // const customPromptRaw = jobSnapshot.jobAiPrompt;
+        // const customPrompt =
+        //     typeof customPromptRaw === "string"
+        //         ? customPromptRaw
+        //         : customPromptRaw && typeof customPromptRaw === "object" && "prompt" in customPromptRaw
+        //             ? typeof (customPromptRaw as { prompt?: unknown }).prompt === "string"
+        //                 ? (customPromptRaw as { prompt?: string }).prompt
+        //                 : null
+        //             : null;
         const candidateName = this.extractCandidateNameFromSessionContext({
             candidate: session.invitation_token.candidate,
             resumeSnapshot,
@@ -394,16 +474,16 @@ export class InterviewService {
             jobTitle,
             agencyName,
         });
-        const instructions = this.buildRealtimeInstructionsFromSnapshots({
-            language,
-            candidateName,
-            agencySnapshot,
-            jobSnapshot,
-            resumeSnapshot,
-            preparedQuestions,
-            customPrompt,
-        });
-        this.logger.log(`[buildElevenLabsSessionContext] instructions=${instructions}`);
+        // const instructions = this.buildRealtimeInstructionsFromSnapshots({
+        //     language,
+        //     candidateName,
+        //     agencySnapshot,
+        //     jobSnapshot,
+        //     resumeSnapshot,
+        //     preparedQuestions,
+        //     customPrompt,
+        // });
+        // this.logger.log(`[buildElevenLabsSessionContext] instructions=${instructions}`);
         const contextVersion = createHash("sha1")
             .update(`${resources.updated_at.toISOString()}|${language}|${jobTitle}|${preparedQuestions.join("|")}`)
             .digest("hex")
@@ -415,12 +495,18 @@ export class InterviewService {
             dialect: language === "ar" ? "ar-EG" : "en",
             candidate_name: candidateName,
             first_message: firstMessage,
-            instructions,
+            // instructions,
+            // determine the dynamic variables based on the language => for the workflow
             dynamic_variables: {
                 interview_session_id: String(session.id),
                 interview_language: language,
                 interview_dialect: language === "ar" ? "ar-EG" : "en",
                 candidate_name: candidateName,
+                ...this.buildFieldByFieldDynamicVariables({
+                    agencySnapshot: agencySnapshot as Record<string, unknown>,
+                    jobSnapshot: jobSnapshot as Record<string, unknown>,
+                    resumeSnapshot: resumeSnapshot as Record<string, unknown>,
+                }),
             },
             context_version: contextVersion,
         };
