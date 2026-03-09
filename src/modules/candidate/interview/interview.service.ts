@@ -17,7 +17,7 @@ import { PrismaService } from 'src/modules/prisma/prisma.service';
 import { SpeechService } from 'src/modules/speech/speech.service';
 import AiInterviewPrompt from 'src/shared/ai/candidate/prompts/ai.interview.prompt';
 import GenerateReferenceQuestions from 'src/shared/ai/candidate/prompts/ai.refrence.prompt';
-import { INTERVIEW_FLOW_BLOCK, INTERVIEW_FLOW_BLOCK_AR } from 'src/shared/ai/candidate/prompts/elevenlabs.interview-flow.prompt';
+import { buildInterviewFlowBlock, buildInterviewFlowBlockAr, InterviewFlowContext } from 'src/shared/ai/candidate/prompts/elevenlabs.interview-flow.prompt';
 import { InterviewLanguage } from './dto/create-interview-resources.dto';
 import responseFormatter from 'src/shared/helpers/response';
 import {
@@ -219,15 +219,13 @@ export class InterviewService {
         language: "ar" | "en";
         candidateName: string;
         jobTitle: string;
+        agencyName: string;
     }): string {
         const safeName = params.candidateName.trim() || "Candidate";
         if (params.language === "en") {
-            return `Hi ${safeName}! I hope you're doing well, I'll be conducting your interview for the ${params.jobTitle} role today. To start us off, could you tell me a bit about your background?`;
+            return `Hi ${safeName}! I'm Plato, and I'll be conducting your interview today on behalf of ${params.agencyName} for the ${params.jobTitle} role. To start us off, could you tell me a bit about your background?`;
         }
-        return `
-        ازيك يا ${safeName} , ايه الاخبار ؟...
-        جاهز للانترفيو ولا ايه؟
-        `;
+        return `ازيك يا ${safeName}! أنا بلاتو، هاجري معاك انترفيو النهارده من ${params.agencyName} لوظيفة ${params.jobTitle}. خليني نبدأ — ممكن تحكيلي عن خلفيتك المهنية وآخر تجربة شغل عندك؟`;
     }
 
     private condenseText(text: string, maxLen: number): string {
@@ -237,6 +235,7 @@ export class InterviewService {
 
     private buildRealtimeInstructionsFromSnapshots(params: {
         language: "ar" | "en";
+        candidateName: string;
         agencySnapshot: Record<string, unknown>;
         jobSnapshot: Record<string, unknown>;
         resumeSnapshot: Record<string, unknown>;
@@ -244,54 +243,97 @@ export class InterviewService {
         customPrompt?: string | null;
     }): string {
         const languageLabel = params.language === "ar" ? "Arabic (Egyptian dialect)" : "English";
+
+        // Agency data
         const agencyName =
-            typeof params.agencySnapshot.company_name === "string" ? params.agencySnapshot.company_name : "N/A";
+            typeof params.agencySnapshot.company_name === "string" && params.agencySnapshot.company_name.trim()
+                ? params.agencySnapshot.company_name.trim()
+                : "N/A";
+        const agencyIndustry =
+            typeof params.agencySnapshot.company_industry === "string" && params.agencySnapshot.company_industry.trim()
+                ? params.agencySnapshot.company_industry.trim()
+                : "N/A";
+        const agencySize =
+            typeof params.agencySnapshot.company_size === "string" && params.agencySnapshot.company_size.trim()
+                ? params.agencySnapshot.company_size.trim()
+                : "N/A";
+        const agencyDescription =
+            typeof params.agencySnapshot.company_description === "string" && params.agencySnapshot.company_description.trim()
+                ? this.condenseText(params.agencySnapshot.company_description.trim(), 300)
+                : "N/A";
+
+        // Job data
         const jobTitle =
             typeof params.jobSnapshot.title === "string" ? params.jobSnapshot.title : "N/A";
         const jobDescription =
-            typeof params.jobSnapshot.description === "string" ? params.jobSnapshot.description : "N/A";
+            typeof params.jobSnapshot.description === "string"
+                ? this.condenseText(params.jobSnapshot.description, 400)
+                : "N/A";
         const jobRequirements =
             typeof params.jobSnapshot.requirements === "string" ? params.jobSnapshot.requirements : "N/A";
-        const resumeParsed =
-            typeof (params.resumeSnapshot.resume as { parsed?: unknown } | undefined)?.parsed === "string"
-                ? ((params.resumeSnapshot.resume as { parsed?: string }).parsed ?? "")
-                : "No resume text available.";
-        const preparedBlock =
-            params.preparedQuestions.length > 0
-                ? params.preparedQuestions.map((question, index) => `${index + 1}. ${question}`).join("\n")
-                : "No mandatory prepared questions provided.";
+
+        // Resume data
+        const resumeRaw = params.resumeSnapshot.resume as Record<string, unknown> | undefined;
+        const resumeStructuredRaw = params.resumeSnapshot.structured;
+        const resumeAnalysisRaw = params.resumeSnapshot.analysis;
+
+        const resumeStructured =
+            typeof resumeStructuredRaw === "string" && resumeStructuredRaw.trim()
+                ? this.condenseText(resumeStructuredRaw.trim(), 800)
+                : typeof resumeRaw?.parsed === "string" && resumeRaw.parsed.trim()
+                    ? this.condenseText(resumeRaw.parsed.trim(), 800)
+                    : "No structured resume available.";
+
+        const resumeAnalysis =
+            typeof resumeAnalysisRaw === "string" && resumeAnalysisRaw.trim()
+                ? this.condenseText(resumeAnalysisRaw.trim(), 600)
+                : typeof resumeAnalysisRaw === "object" && resumeAnalysisRaw !== null
+                    ? this.condenseText(JSON.stringify(resumeAnalysisRaw), 600)
+                    : "No resume analysis available.";
+
         const customPromptBlock = params.customPrompt?.trim()
-            ? `\nAdditional backend instructions:\n${params.customPrompt.trim()}`
+            ? `\n==================================================\nADDITIONAL INSTRUCTIONS FROM HIRING MANAGER\n==================================================\n${params.customPrompt.trim()}`
             : "";
-        const v3AllowedAudioTags =
-            "[chuckles], [sighs], [whispers], [serious], [thoughtful], [calm], [short pause], [long pause]";
+
+        const ctx: InterviewFlowContext = {
+            agencyName,
+            agencyIndustry,
+            agencySize,
+            agencyDescription,
+            jobTitle,
+            jobDescription,
+            jobRequirements,
+            candidateName: params.candidateName,
+            resumeStructured,
+            resumeAnalysis,
+            preparedQuestions: params.preparedQuestions,
+        };
+
+        const flowBlock = params.language === "ar"
+            ? buildInterviewFlowBlockAr(ctx)
+            : buildInterviewFlowBlock(ctx);
 
         const result = [
-            params.language === "ar" ? INTERVIEW_FLOW_BLOCK_AR : INTERVIEW_FLOW_BLOCK,
-            "System role: Plato interview agent.",
+            `# IDENTITY: You are Plato, a senior recruiter working for ${agencyName}.`,
+            `# CURRENT TASK: You are interviewing ${params.candidateName} for the ${jobTitle} position.`,
+            `# MANDATORY: You work for ${agencyName} only — NOT Google, Amazon, or any other company.`,
+            flowBlock,
             `Interview language lock: ${languageLabel}.`,
             params.language === "ar"
                 ? "Arabic rule: speak only Egyptian Arabic naturally; avoid MSA/formal Arabic and avoid English leakage."
                 : "English rule: speak only clear natural English.",
-            "Model mode: Eleven v3 audio tags only.",
-            "Tag policy: use audio tags sparingly and only when they improve natural spoken delivery.",
-            `Allowed audio tags (v3): ${v3AllowedAudioTags}.`,
-            "Forbidden tags: all SSML/XML forms such as <break>, <phoneme>, <prosody>, <speak>, and any closing XML tags.",
-            "Do not mention or read tag syntax rules aloud unless the candidate explicitly asks about them.",
             "Normalize text for speech: expand numbers, dates, currencies, abbreviations, URLs, and symbols into spoken-friendly words.",
             "Never mention internal tools, emit/function/event names, or technical actions out loud.",
             "When cancel/postpone/complete is confirmed by candidate, execute the corresponding tool silently.",
-            "Do not wait for the candidate to say they are ready; once the first message is sent, proceed directly to the interview questions.",
-            "If the candidate says 'let's go' or 'I am ready', immediately ask the first question from the 'Prepared questions' list.",
-            `Agency: ${agencyName}`,
-            `Job title: ${jobTitle}`,
-            `Job description:\n${this.condenseText(jobDescription, 400)}`,
-            `Job requirements: ${jobRequirements}`,
-            `Resume (key points only):\n${this.condenseText(resumeParsed, 600)}`,
-            `Prepared questions:\n${preparedBlock}`,
             customPromptBlock,
+            `# REMINDER: You are Plato at ${agencyName}. The candidate is ${params.candidateName}. The role is ${jobTitle}.`,
+            `# START NOW: Do not ask if they are ready. Proceed to Phase 1 immediately after your greeting.`,
         ].join("\n");
-        this.logger.log(`[buildRealtimeInstructions] lang=${params.language} agency=${agencyName} job=${jobTitle} resumeLen=${resumeParsed.length} questions=${params.preparedQuestions.length}`);
+
+        this.logger.log(
+            `[buildRealtimeInstructions] lang=${params.language} agency=${agencyName} job=${jobTitle} ` +
+            `resumeLen=${resumeStructured.length} analysisLen=${resumeAnalysis.length} questions=${params.preparedQuestions.length}`
+        );
         return result;
     }
 
@@ -343,19 +385,25 @@ export class InterviewService {
         const jobTitle = typeof jobSnapshot.title === "string" && jobSnapshot.title.trim()
             ? jobSnapshot.title.trim()
             : "the role";
+        const agencyName = typeof agencySnapshot.company_name === "string" && agencySnapshot.company_name.trim()
+            ? agencySnapshot.company_name.trim()
+            : "our company";
         const firstMessage = this.buildFirstMessage({
             language,
             candidateName,
             jobTitle,
+            agencyName,
         });
         const instructions = this.buildRealtimeInstructionsFromSnapshots({
             language,
+            candidateName,
             agencySnapshot,
             jobSnapshot,
             resumeSnapshot,
             preparedQuestions,
             customPrompt,
         });
+        this.logger.log(`[buildElevenLabsSessionContext] instructions=${instructions}`);
         const contextVersion = createHash("sha1")
             .update(`${resources.updated_at.toISOString()}|${language}|${jobTitle}|${preparedQuestions.join("|")}`)
             .digest("hex")

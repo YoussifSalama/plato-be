@@ -63,10 +63,11 @@ describe("InterviewService prompt isolation and v3 policy", () => {
         };
     });
 
-    it("builds v3 audio-tag policy instructions and blocks SSML guidance", () => {
+    it("builds instructions with agency/job/candidate briefing embedded in flow block", () => {
         const instructions = (service as unknown as {
             buildRealtimeInstructionsFromSnapshots: (params: {
                 language: "ar" | "en";
+                candidateName: string;
                 agencySnapshot: Record<string, unknown>;
                 jobSnapshot: Record<string, unknown>;
                 resumeSnapshot: Record<string, unknown>;
@@ -75,7 +76,13 @@ describe("InterviewService prompt isolation and v3 policy", () => {
             }) => string;
         }).buildRealtimeInstructionsFromSnapshots({
             language: "en",
-            agencySnapshot: { company_name: "Plato Agency" },
+            candidateName: "Omar Nasser",
+            agencySnapshot: {
+                company_name: "Plato Agency",
+                company_industry: "Tech",
+                company_size: "50-200",
+                company_description: "A leading AI recruitment platform.",
+            },
             jobSnapshot: {
                 title: "Backend Engineer",
                 description: "Build APIs.",
@@ -86,12 +93,11 @@ describe("InterviewService prompt isolation and v3 policy", () => {
             customPrompt: "Keep answers concise and practical.",
         });
 
-        expect(instructions).toContain("Model mode: Eleven v3 audio tags only.");
-        expect(instructions).toContain("Allowed audio tags (v3):");
-        expect(instructions).toContain("Forbidden tags: all SSML/XML forms such as <break>, <phoneme>, <prosody>, <speak>");
+        expect(instructions).toContain("Plato Agency");
+        expect(instructions).toContain("Backend Engineer");
+        expect(instructions).toContain("Omar Nasser");
         expect(instructions).toContain("Normalize text for speech:");
-        expect(instructions).toContain("Agency: Plato Agency");
-        expect(instructions).toContain("Job title: Backend Engineer");
+        expect(instructions).toContain("Keep answers concise and practical.");
     });
 
     it("builds deterministic personalized first message per language", () => {
@@ -100,6 +106,7 @@ describe("InterviewService prompt isolation and v3 policy", () => {
                 language: "ar" | "en";
                 candidateName: string;
                 jobTitle: string;
+                agencyName: string;
             }) => string;
         }).buildFirstMessage.bind(service);
 
@@ -107,17 +114,21 @@ describe("InterviewService prompt isolation and v3 policy", () => {
             language: "en",
             candidateName: "Omar",
             jobTitle: "QA Engineer",
+            agencyName: "Plato Agency",
         });
         const arabic = buildFirstMessage({
             language: "ar",
             candidateName: "Omar",
             jobTitle: "QA Engineer",
+            agencyName: "Plato Agency",
         });
 
-        expect(english).toContain("Hi Omar");
+        expect(english).toContain("Omar");
         expect(english).toContain("QA Engineer");
-        expect(arabic).toContain("أهلًا يا Omar");
+        expect(english).toContain("Plato Agency");
+        expect(arabic).toContain("Omar");
         expect(arabic).toContain("QA Engineer");
+        expect(arabic).toContain("Plato Agency");
     });
 
     it("returns isolated runtime context and changes context_version when snapshots change", async () => {
@@ -151,10 +162,12 @@ describe("InterviewService prompt isolation and v3 policy", () => {
         expect(firstContext.language).toBe("ar");
         expect(firstContext.dialect).toBe("ar-EG");
         expect(firstContext.first_message).toContain("Sara Ali");
-        expect(firstContext.instructions).toContain("Model mode: Eleven v3 audio tags only.");
+        expect(firstContext.instructions).toContain("Plato Agency");
+        expect(firstContext.instructions).toContain("Frontend Engineer");
         expect(firstContext.dynamic_variables.interview_language).toBe("ar");
 
         expect(secondContext.first_message).toContain("Mona Hassan");
+        expect(secondContext.instructions).toContain("Mona Hassan");
         expect(secondContext.instructions).toContain("optimize React renders");
         expect(secondContext.context_version).not.toBe(firstContext.context_version);
     });
