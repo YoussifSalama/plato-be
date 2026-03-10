@@ -703,12 +703,23 @@ export class InterviewService {
                 select: { language: true },
             }),
         ]);
-        if (!session) {
-            throw new BadRequestException("Interview session not found.");
-        }
         if (!interviewResources) {
             throw new BadRequestException("Interview resources not found.");
         }
+
+        const subscription = await this.prisma.agencySubscription.findUnique({
+            where: { agency_id: interviewResources.agency_id },
+            include: { plan: true },
+        });
+
+        if (!subscription) {
+            throw new BadRequestException("Agency does not have an active subscription.");
+        }
+
+        if (subscription.plan.name !== 'enterprise' && subscription.used_interview_sessions >= subscription.plan.interview_sessions_quota) {
+            throw new BadRequestException("The agency's interview sessions quota has been exceeded. Please contact the agency for further assistance.");
+        }
+
         const selectedLanguage = interviewResources.language === "en" ? "en" : "ar";
 
         const welcomeQuestion = await this.generateNextInterviewQuestion(
@@ -759,10 +770,20 @@ export class InterviewService {
                 select: { language: true },
             }),
         ]);
-        if (!session) {
-            throw new BadRequestException("Interview session not found.");
-        }
         const selectedLanguage = interviewResources?.language === "en" ? "en" : "ar";
+
+        const subscription = await this.prisma.agencySubscription.findUnique({
+            where: { agency_id: session.agency_id },
+            include: { plan: true },
+        });
+
+        if (!subscription) {
+            throw new BadRequestException("Agency does not have an active subscription.");
+        }
+
+        if (subscription.plan.name !== 'enterprise' && subscription.used_interview_sessions >= subscription.plan.interview_sessions_quota) {
+            throw new BadRequestException("The agency's interview sessions quota has been exceeded. Please contact the agency for further assistance.");
+        }
 
         this.notifyInterviewStatus(session.id, InterviewSessionStatus.active).catch(() => { });
 
@@ -1258,6 +1279,10 @@ export class InterviewService {
             this.prisma.invitationToken.update({
                 where: { id: session.invitation_token_id },
                 data: { revoked: true, status: InvitationTokenStatus.invalid },
+            }),
+            this.prisma.agencySubscription.update({
+                where: { agency_id: session.agency_id },
+                data: { used_interview_sessions: { increment: 1 } },
             }),
         ]);
 
@@ -2055,15 +2080,21 @@ export class InterviewService {
                 )
                 : null;
             qaLog.push({ question: closingMessage, answer: "" });
-            await this.prisma.interviewSession.update({
-                where: { id: session.id },
-                data: {
-                    qa_log: qaLog as unknown as Prisma.InputJsonValue,
-                    status: InterviewSessionStatus.completed,
-                    generated_profile_status: InterviewGeneratedProfileStatus.queued,
-                    generated_profile_error: null,
-                },
-            });
+            await this.prisma.$transaction([
+                this.prisma.interviewSession.update({
+                    where: { id: session.id },
+                    data: {
+                        qa_log: qaLog as unknown as Prisma.InputJsonValue,
+                        status: InterviewSessionStatus.completed,
+                        generated_profile_status: InterviewGeneratedProfileStatus.queued,
+                        generated_profile_error: null,
+                    },
+                }),
+                this.prisma.agencySubscription.update({
+                    where: { agency_id: session.agency_id },
+                    data: { used_interview_sessions: { increment: 1 } },
+                }),
+            ]);
             this.enqueueGeneratedProfileJob(session.id).catch((error) => {
                 this.logger.error(
                     `Failed to enqueue generated profile for session=${session.id}`,
