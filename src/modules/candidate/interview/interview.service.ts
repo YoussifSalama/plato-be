@@ -42,6 +42,7 @@ import { RealtimeMetricsDto } from './dto/realtime-metrics.dto';
 import { createHash } from "crypto";
 import { IOpenAiKeyConfig } from 'src/shared/types/config/env.types';
 import { CandidateNotificationService } from '../notification/notification.service';
+import instructionsGuard from 'src/shared/ai/candidate/prompts/elevenlabs.interview-flow.prompt';
 
 @Injectable()
 export class InterviewService {
@@ -299,9 +300,11 @@ export class InterviewService {
     }): string {
         const safeName = params.candidateName.trim() || "Candidate";
         if (params.language === "en") {
-            return `Hi ${safeName}! I'm Plato, and I'll be conducting your interview today on behalf of ${params.agencyName} for the ${params.jobTitle} role. To start us off, could you tell me a bit about your background?`;
+            // return `Hi ${safeName}! I'm Plato, and I'll be conducting your interview today on behalf of ${params.agencyName} for the ${params.jobTitle} role. To start us off, could you tell me a bit about your background?`;
+            return `Hi ${safeName} How is everything going?`;
         }
-        return `ازيك يا ${safeName}! أنا بلاتو، هاجري معاك انترفيو النهارده من ${params.agencyName} لوظيفة ${params.jobTitle}. خليني نبدأ — ممكن تحكيلي عن خلفيتك المهنية وآخر تجربة شغل عندك؟`;
+        // return `ازيك يا ${safeName}! أنا بلاتو، هاجري معاك انترفيو النهارده من ${params.agencyName} لوظيفة ${params.jobTitle}. خليني نبدأ — ممكن تحكيلي عن خلفيتك المهنية وآخر تجربة شغل عندك؟`;
+        return `ازيك يا ${safeName} اي الاخبار, كله حلو؟`;
     }
 
     private condenseText(text: string, maxLen: number): string {
@@ -495,6 +498,7 @@ export class InterviewService {
             dialect: language === "ar" ? "ar-EG" : "en",
             candidate_name: candidateName,
             first_message: firstMessage,
+            instrutions: instructionsGuard,
             // instructions,
             // determine the dynamic variables based on the language => for the workflow
             dynamic_variables: {
