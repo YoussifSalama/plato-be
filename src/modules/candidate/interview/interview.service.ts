@@ -790,7 +790,10 @@ export class InterviewService {
             }),
             this.prisma.interviewResources.findFirst({
                 where: { invitation_token_id: interviewTokenId },
-                select: { language: true },
+                select: {
+                    language: true,
+                    agency_id: true
+                },
             }),
         ]);
         if (!interviewResources) {
@@ -853,7 +856,10 @@ export class InterviewService {
         const [session, interviewResources] = await Promise.all([
             this.prisma.interviewSession.findFirst({
                 where: { invitation_token_id: interviewTokenId },
-                select: { id: true },
+                select: {
+                    id: true,
+                    agency_id: true
+                },
             }),
             this.prisma.interviewResources.findFirst({
                 where: { invitation_token_id: interviewTokenId },
