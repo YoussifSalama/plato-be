@@ -26,7 +26,7 @@ export class InterviewController {
     constructor(
         private readonly interviewService: InterviewService,
         private readonly elevenLabsService: ElevenLabsService
-    ) {}
+    ) { }
 
     @Get()
     @ApiBearerAuth("access-token")
@@ -49,7 +49,7 @@ export class InterviewController {
     @ApiQuery({
         name: "status",
         required: false,
-        schema: { type: "string", enum: ["active", "expired", "revoked", "all"] },
+        schema: { type: "string", enum: ["active", "expired", "revoked", "all", "in_use", "invalid"] },
         example: "active",
     })
     @ApiQuery({
@@ -64,7 +64,7 @@ export class InterviewController {
         @Query("limit") limit?: string,
         @Query("sortBy") sortBy?: "created_at" | "expires_at",
         @Query("sortOrder") sortOrder?: "asc" | "desc",
-        @Query("status") status?: "active" | "expired" | "revoked" | "all",
+        @Query("status") status?: "active" | "expired" | "revoked" | "all" | "in_use" | "invalid",
         @Query("search") search?: string
     ) {
         return this.interviewService.listCandidateInterviews(req.user.id, {

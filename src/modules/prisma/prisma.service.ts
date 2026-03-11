@@ -1,10 +1,12 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../../generated/prisma/client';
 import { Pool } from 'pg';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit {
+    private readonly logger = new Logger(PrismaService.name);
+
     constructor() {
         const connectionString = process.env.DATABASE_URL;
         if (!connectionString) {
@@ -14,7 +16,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
             connectionString,
             connectionTimeoutMillis: 30000,
             idleTimeoutMillis: 30000,
-            max: 50,
+            max: 10,
         });
         const adapter = new PrismaPg(pool);
         super({ adapter });
@@ -27,6 +29,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
                 await this.$connect();
                 return;
             } catch (error) {
+                this.logger.error(`❌ Prisma connection attempt ${attempt} failed: ${error.message}`);
                 if (attempt === maxAttempts) {
                     throw error;
                 }

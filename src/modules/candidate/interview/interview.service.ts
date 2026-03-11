@@ -783,6 +783,14 @@ export class InterviewService {
     }
 
     async startInterviewWithWelcome(interviewTokenId: number, includeSpeech = true) {
+        const resources = await this.prisma.interviewResources.findFirst({
+            where: { invitation_token_id: interviewTokenId },
+            select: { agency_id: true }
+        });
+        if (resources) {
+            await this.validateAgencyQuota(resources.agency_id);
+        }
+
         await this.IntiateSessionAndCreateChunk(interviewTokenId);
         const [session, interviewResources] = await Promise.all([
             this.prisma.interviewSession.findFirst({
@@ -796,22 +804,15 @@ export class InterviewService {
                 },
             }),
         ]);
+        if (!session) {
+            throw new BadRequestException("Interview session not found.");
+        }
+
         if (!interviewResources) {
             throw new BadRequestException("Interview resources not found.");
         }
 
-        const subscription = await this.prisma.agencySubscription.findUnique({
-            where: { agency_id: interviewResources.agency_id },
-            include: { plan: true },
-        });
-
-        if (!subscription) {
-            throw new BadRequestException("Agency does not have an active subscription.");
-        }
-
-        if (subscription.plan.name !== 'enterprise' && subscription.used_interview_sessions >= subscription.plan.interview_sessions_quota) {
-            throw new BadRequestException("The agency's interview sessions quota has been exceeded. Please contact the agency for further assistance.");
-        }
+        await this.validateAgencyQuota(interviewResources.agency_id);
 
         const selectedLanguage = interviewResources.language === "en" ? "en" : "ar";
 
@@ -852,6 +853,14 @@ export class InterviewService {
     }
 
     async startInterviewSession(interviewTokenId: number) {
+        const resources = await this.prisma.interviewResources.findFirst({
+            where: { invitation_token_id: interviewTokenId },
+            select: { agency_id: true }
+        });
+        if (resources) {
+            await this.validateAgencyQuota(resources.agency_id);
+        }
+
         await this.IntiateSessionAndCreateChunk(interviewTokenId);
         const [session, interviewResources] = await Promise.all([
             this.prisma.interviewSession.findFirst({
@@ -866,20 +875,13 @@ export class InterviewService {
                 select: { language: true },
             }),
         ]);
+        if (!session) {
+            throw new BadRequestException("Interview session not found.");
+        }
+
         const selectedLanguage = interviewResources?.language === "en" ? "en" : "ar";
 
-        const subscription = await this.prisma.agencySubscription.findUnique({
-            where: { agency_id: session.agency_id },
-            include: { plan: true },
-        });
-
-        if (!subscription) {
-            throw new BadRequestException("Agency does not have an active subscription.");
-        }
-
-        if (subscription.plan.name !== 'enterprise' && subscription.used_interview_sessions >= subscription.plan.interview_sessions_quota) {
-            throw new BadRequestException("The agency's interview sessions quota has been exceeded. Please contact the agency for further assistance.");
-        }
+        await this.validateAgencyQuota(session.agency_id);
 
         this.notifyInterviewStatus(session.id, InterviewSessionStatus.active).catch(() => { });
 
@@ -963,6 +965,9 @@ export class InterviewService {
         if (!invitation) {
             throw new BadRequestException("Invitation not found.");
         }
+
+        await this.validateAgencyQuota(invitation.from.id);
+
         const resumeStructuredEmail = this.extractEmailFromResumeStructured(
             invitation.to?.resume_structured?.data
         );
@@ -1133,7 +1138,7 @@ export class InterviewService {
             limit?: number;
             sortBy?: "created_at" | "expires_at";
             sortOrder?: "asc" | "desc";
-            status?: "active" | "expired" | "revoked" | "all";
+            status?: "active" | "expired" | "revoked" | "all" | "in_use" | "invalid";
             search?: string;
         }
     ) {
@@ -1199,9 +1204,11 @@ export class InterviewService {
                 ? { revoked: false, expires_at: { gt: now } }
                 : status === "revoked"
                     ? { revoked: true }
-                    : status === "expired"
-                        ? { OR: [{ revoked: true }, { expires_at: { lte: now } }] }
-                        : {};
+                    : status === "expired" || status === "invalid"
+                        ? { OR: [{ revoked: true }, { expires_at: { lte: now } }, { status: "invalid" }] }
+                        : status === "in_use"
+                            ? { status: "in_use" }
+                            : {};
 
         const searchWhere: Prisma.InvitationTokenWhereInput = search
             ? {
@@ -1975,6 +1982,21 @@ export class InterviewService {
             );
         }
         return response.json();
+    }
+
+    private async validateAgencyQuota(agencyId: number) {
+        const subscription = await this.prisma.agencySubscription.findUnique({
+            where: { agency_id: agencyId },
+            include: { plan: true },
+        });
+
+        if (!subscription) {
+            throw new BadRequestException("Agency does not have an active subscription.");
+        }
+
+        if (subscription.plan.name !== 'enterprise' && subscription.used_interview_sessions >= subscription.plan.interview_sessions_quota) {
+            throw new BadRequestException("The agency's interview sessions quota has been exceeded. Please contact the agency for further assistance.");
+        }
     }
 
     async IntiateSessionAndCreateChunk(interview_token: number) {
