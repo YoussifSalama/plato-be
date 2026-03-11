@@ -1,4 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { CandidateJwtAuthGuard } from 'src/shared/guards/candidate-jwt-auth.guard';
+import { JwtAuthGuard } from 'src/shared/guards/jwt-auth.guard';
 import { InterviewController } from './interview.controller';
 import { InterviewService } from './interview.service';
 import { ElevenLabsService } from './elevenlabs.service';
@@ -10,31 +12,15 @@ describe('InterviewController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [InterviewController],
       providers: [
-        {
-          provide: InterviewService,
-          useValue: {
-            listCandidateInterviews: jest.fn(),
-            createInterviewResources: jest.fn(),
-            startInterviewSession: jest.fn(),
-            cancelInterviewSession: jest.fn(),
-            completeInterviewSession: jest.fn(),
-            getGeneratedProfile: jest.fn(),
-            postponeInterviewSession: jest.fn(),
-            appendQaLogEntry: jest.fn(),
-            trackModalDismissed: jest.fn(),
-            createRealtimeSession: jest.fn(),
-            recordRealtimeMetrics: jest.fn(),
-            processElevenLabsPostCallWebhook: jest.fn(),
-          },
-        },
-        {
-          provide: ElevenLabsService,
-          useValue: {
-            getSignedUrl: jest.fn(),
-          },
-        },
+        { provide: InterviewService, useValue: {} },
+        { provide: ElevenLabsService, useValue: {} },
       ],
-    }).compile();
+    })
+      .overrideGuard(CandidateJwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<InterviewController>(InterviewController);
   });
