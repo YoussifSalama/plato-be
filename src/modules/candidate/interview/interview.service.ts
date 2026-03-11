@@ -498,7 +498,7 @@ export class InterviewService {
             dialect: language === "ar" ? "ar-EG" : "en",
             candidate_name: candidateName,
             first_message: firstMessage,
-            instrutions: instructionsGuard,
+            // instrutions: instructionsGuard,
             // instructions,
             // determine the dynamic variables based on the language => for the workflow
             dynamic_variables: {
