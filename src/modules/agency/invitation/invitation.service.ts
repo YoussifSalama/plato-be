@@ -97,10 +97,6 @@ export class InvitationService {
                 throw new BadRequestException("Agency does not have an active subscription.");
             }
 
-            if (subscription.plan.name !== 'enterprise' && subscription.used_interview_sessions >= subscription.plan.interview_sessions_quota) {
-                throw new BadRequestException("Interview sessions quota exceeded for your current plan.");
-            }
-
             const resume = await tx.resume.findUnique({
                 where: { id: resumeId },
                 select: { id: true, job_id: true },
@@ -156,13 +152,6 @@ export class InvitationService {
                     candidate_id: candidateId ?? undefined,
                 },
                 select: { token: true, expires_at: true },
-            });
-
-            await (tx as any).agencySubscription.update({
-                where: { id: subscription.id },
-                data: {
-                    used_interview_sessions: { increment: 1 }
-                }
             });
 
             return {

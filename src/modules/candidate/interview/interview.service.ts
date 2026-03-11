@@ -783,6 +783,14 @@ export class InterviewService {
     }
 
     async startInterviewWithWelcome(interviewTokenId: number, includeSpeech = true) {
+        const resources = await this.prisma.interviewResources.findFirst({
+            where: { invitation_token_id: interviewTokenId },
+            select: { agency_id: true }
+        });
+        if (resources) {
+            await this.validateAgencyQuota(resources.agency_id);
+        }
+
         await this.IntiateSessionAndCreateChunk(interviewTokenId);
         const [session, interviewResources] = await Promise.all([
             this.prisma.interviewSession.findFirst({
@@ -790,15 +798,22 @@ export class InterviewService {
             }),
             this.prisma.interviewResources.findFirst({
                 where: { invitation_token_id: interviewTokenId },
-                select: { language: true },
+                select: {
+                    language: true,
+                    agency_id: true
+                },
             }),
         ]);
         if (!session) {
             throw new BadRequestException("Interview session not found.");
         }
+
         if (!interviewResources) {
             throw new BadRequestException("Interview resources not found.");
         }
+
+        await this.validateAgencyQuota(interviewResources.agency_id);
+
         const selectedLanguage = interviewResources.language === "en" ? "en" : "ar";
 
         const welcomeQuestion = await this.generateNextInterviewQuestion(
@@ -838,11 +853,22 @@ export class InterviewService {
     }
 
     async startInterviewSession(interviewTokenId: number) {
+        const resources = await this.prisma.interviewResources.findFirst({
+            where: { invitation_token_id: interviewTokenId },
+            select: { agency_id: true }
+        });
+        if (resources) {
+            await this.validateAgencyQuota(resources.agency_id);
+        }
+
         await this.IntiateSessionAndCreateChunk(interviewTokenId);
         const [session, interviewResources] = await Promise.all([
             this.prisma.interviewSession.findFirst({
                 where: { invitation_token_id: interviewTokenId },
-                select: { id: true },
+                select: {
+                    id: true,
+                    agency_id: true
+                },
             }),
             this.prisma.interviewResources.findFirst({
                 where: { invitation_token_id: interviewTokenId },
@@ -852,7 +878,10 @@ export class InterviewService {
         if (!session) {
             throw new BadRequestException("Interview session not found.");
         }
+
         const selectedLanguage = interviewResources?.language === "en" ? "en" : "ar";
+
+        await this.validateAgencyQuota(session.agency_id);
 
         this.notifyInterviewStatus(session.id, InterviewSessionStatus.active).catch(() => { });
 
@@ -936,6 +965,9 @@ export class InterviewService {
         if (!invitation) {
             throw new BadRequestException("Invitation not found.");
         }
+
+        await this.validateAgencyQuota(invitation.from.id);
+
         const resumeStructuredEmail = this.extractEmailFromResumeStructured(
             invitation.to?.resume_structured?.data
         );
@@ -1106,7 +1138,7 @@ export class InterviewService {
             limit?: number;
             sortBy?: "created_at" | "expires_at";
             sortOrder?: "asc" | "desc";
-            status?: "active" | "expired" | "revoked" | "all";
+            status?: "active" | "expired" | "revoked" | "all" | "in_use" | "invalid";
             search?: string;
         }
     ) {
@@ -1172,9 +1204,11 @@ export class InterviewService {
                 ? { revoked: false, expires_at: { gt: now } }
                 : status === "revoked"
                     ? { revoked: true }
-                    : status === "expired"
-                        ? { OR: [{ revoked: true }, { expires_at: { lte: now } }] }
-                        : {};
+                    : status === "expired" || status === "invalid"
+                        ? { OR: [{ revoked: true }, { expires_at: { lte: now } }, { status: "invalid" }] }
+                        : status === "in_use"
+                            ? { status: "in_use" }
+                            : {};
 
         const searchWhere: Prisma.InvitationTokenWhereInput = search
             ? {
@@ -1348,6 +1382,10 @@ export class InterviewService {
             this.prisma.invitationToken.update({
                 where: { id: session.invitation_token_id },
                 data: { revoked: true, status: InvitationTokenStatus.invalid },
+            }),
+            this.prisma.agencySubscription.update({
+                where: { agency_id: session.agency_id },
+                data: { used_interview_sessions: { increment: 1 } },
             }),
         ]);
 
@@ -1946,6 +1984,21 @@ export class InterviewService {
         return response.json();
     }
 
+    private async validateAgencyQuota(agencyId: number) {
+        const subscription = await this.prisma.agencySubscription.findUnique({
+            where: { agency_id: agencyId },
+            include: { plan: true },
+        });
+
+        if (!subscription) {
+            throw new BadRequestException("Agency does not have an active subscription.");
+        }
+
+        if (subscription.plan.name !== 'enterprise' && subscription.used_interview_sessions >= subscription.plan.interview_sessions_quota) {
+            throw new BadRequestException("The agency's interview sessions quota has been exceeded. Please contact the agency for further assistance.");
+        }
+    }
+
     async IntiateSessionAndCreateChunk(interview_token: number) {
         let session = await this.prisma.interviewSession.findFirst({
             where: {
@@ -2145,15 +2198,21 @@ export class InterviewService {
                 )
                 : null;
             qaLog.push({ question: closingMessage, answer: "" });
-            await this.prisma.interviewSession.update({
-                where: { id: session.id },
-                data: {
-                    qa_log: qaLog as unknown as Prisma.InputJsonValue,
-                    status: InterviewSessionStatus.completed,
-                    generated_profile_status: InterviewGeneratedProfileStatus.queued,
-                    generated_profile_error: null,
-                },
-            });
+            await this.prisma.$transaction([
+                this.prisma.interviewSession.update({
+                    where: { id: session.id },
+                    data: {
+                        qa_log: qaLog as unknown as Prisma.InputJsonValue,
+                        status: InterviewSessionStatus.completed,
+                        generated_profile_status: InterviewGeneratedProfileStatus.queued,
+                        generated_profile_error: null,
+                    },
+                }),
+                this.prisma.agencySubscription.update({
+                    where: { agency_id: session.agency_id },
+                    data: { used_interview_sessions: { increment: 1 } },
+                }),
+            ]);
             this.enqueueGeneratedProfileJob(session.id).catch((error) => {
                 this.logger.error(
                     `Failed to enqueue generated profile for session=${session.id}`,
