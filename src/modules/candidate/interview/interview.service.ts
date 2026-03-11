@@ -269,7 +269,7 @@ export class InterviewService {
     }): string {
         const candidateName = params.candidate?.candidate_name?.trim();
         if (candidateName) return candidateName;
-        const fullName = [params.candidate?.f_name, params.candidate?.l_name]
+        const fullName = [params.candidate?.f_name]
             .map((part) => (typeof part === "string" ? part.trim() : ""))
             .filter(Boolean)
             .join(" ");
