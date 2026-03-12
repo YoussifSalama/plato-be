@@ -1266,6 +1266,19 @@ export class InterviewService {
                             },
                         },
                     },
+                    interview_session: {
+                        select: {
+                            id: true,
+                            status: true,
+                            feedbacks: {
+                                select: {
+                                    from: true,
+                                    decision: true,
+                                    rating: true,
+                                }
+                            }
+                        },
+                    },
                 },
                 orderBy: { [sortBy]: sortOrder },
                 skip: (page - 1) * limit,
@@ -1273,22 +1286,33 @@ export class InterviewService {
             }),
         ]);
 
-        const items = tokens.map((token) => ({
-            id: token.id,
-            token: token.token,
-            revoked: token.revoked,
-            status: token.status,
-            expires_at: token.expires_at,
-            created_at: token.created_at,
-            agency: token.invitation?.from ?? null,
-            job: token.invitation?.job
-                ? {
-                    title: token.invitation.job.title,
-                    description: token.invitation.job.description,
-                    status: token.invitation.job.is_active ? "active" : "inactive",
-                }
-                : null,
-        }));
+        const items = tokens.map((token) => {
+            const session = (token as any).interview_session;
+            const agencyFeedback = session?.feedbacks?.find((f: any) => f.from === 'agency');
+            const candidateFeedback = session?.feedbacks?.find((f: any) => f.from === 'candidate');
+
+            return {
+                id: token.id,
+                token: token.token,
+                revoked: token.revoked,
+                status: token.status,
+                expires_at: token.expires_at,
+                created_at: token.created_at,
+                agency: token.invitation?.from ?? null,
+                job: token.invitation?.job
+                    ? {
+                        title: token.invitation.job.title,
+                        description: token.invitation.job.description,
+                        status: token.invitation.job.is_active ? "active" : "inactive",
+                    }
+                    : null,
+                interview_session_id: session?.id ?? null,
+                session_status: session?.status ?? null,
+                agency_decision: agencyFeedback ? agencyFeedback.decision : null,
+                is_candidate_submitted: !!candidateFeedback,
+                is_agency_submitted: !!agencyFeedback,
+            };
+        });
 
         return responseFormatter(
             items,
