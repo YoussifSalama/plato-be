@@ -30,7 +30,8 @@
       "@generated/*": [
         "src/generated/*",
         "dist/generated/*"
-      ]
+      ],
+      "@aws-sdk/client-s3": ["node_modules/@aws-sdk/client-s3"]
     }
   }
 }

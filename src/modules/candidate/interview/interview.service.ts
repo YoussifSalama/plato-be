@@ -506,6 +506,10 @@ export class InterviewService {
                 interview_language: language,
                 interview_dialect: language === "ar" ? "ar-EG" : "en",
                 candidate_name: candidateName,
+                prepared_questions:
+                    preparedQuestions.length > 0
+                        ? preparedQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")
+                        : "",
                 ...this.buildFieldByFieldDynamicVariables({
                     agencySnapshot: agencySnapshot as Record<string, unknown>,
                     jobSnapshot: jobSnapshot as Record<string, unknown>,
@@ -1876,6 +1880,13 @@ export class InterviewService {
             "Modal dismiss event tracked.",
             200
         );
+    }
+
+    async updateInterviewSessionRecord(interviewSessionId: number, recordUrl: string): Promise<void> {
+        await this.prisma.interviewSession.update({
+            where: { id: interviewSessionId },
+            data: { record: recordUrl },
+        });
     }
 
     async recordRealtimeMetrics(body: RealtimeMetricsDto) {

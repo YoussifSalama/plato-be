@@ -22,6 +22,8 @@ import { SharedModule } from "./shared/shared.module";
 import { AiCallModule } from "./queues/agency/ai-call/ai-call.module";
 import { StripeModule } from "./modules/stripe/stripe.module";
 import { FeedbackModule } from "./modules/feedback/feedback.module";
+import { S3Client } from '@aws-sdk/client-s3';
+import { AwsSdkModule } from 'aws-sdk-v3-nest';
 
 @Module({
   imports: [
@@ -32,6 +34,16 @@ import { FeedbackModule } from "./modules/feedback/feedback.module";
     }),
     BullModule.forRoot({
       connection: redisConnection
+    }),
+    AwsSdkModule.register({
+      client: new S3Client({
+        region: process.env.AWS_S3_REGION ?? 'eu-central-1',
+        credentials: {
+          accessKeyId: process.env.AWS_S3_ACCESS_KEY_ID ?? '',
+          secretAccessKey: process.env.AWS_S3_SECRET_ACCESS_KEY ?? '',
+        },
+      }),
+      isGlobal: true,
     }),
     ResumeQueueModule,
     ResumeBatchesModule,

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Logger, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Logger, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiTags } from "@nestjs/swagger";
 import { CandidateJwtAuthGuard } from "src/shared/guards/candidate-jwt-auth.guard";
 import { JwtAuthGuard } from "src/shared/guards/jwt-auth.guard";
@@ -13,10 +13,16 @@ import { PostponeInterviewDto } from "./dto/postpone-interview.dto";
 import { RealtimeMetricsDto } from "./dto/realtime-metrics.dto";
 import { ModalDismissedDto } from "./dto/modal-dismissed.dto";
 import { ElevenLabsSignedUrlDto } from "./dto/elevenlabs-signed-url.dto";
+import { CreateMultipartUploadDto } from "./dto/create-multipart-upload.dto";
+import { CompleteMultipartUploadDto } from "./dto/complete-multipart-upload.dto";
+import { GeneratePresignedUrlDto } from "./dto/generate-presigned-url.dto";
+import { GeneratePresignedPartUrlDto } from "./dto/generate-presigned-part-url.dto";
 import {
     extractInterviewSessionIdFromWebhookPayload,
     verifyElevenLabsWebhookSignature,
 } from "./elevenlabs-webhook.util";
+import { AwsS3Service } from "src/shared/helpers/aws/s3/s3.service";
+import { ConfigService } from "@nestjs/config";
 
 @ApiTags("Interview")
 @Controller("interview")
@@ -25,7 +31,9 @@ export class InterviewController {
 
     constructor(
         private readonly interviewService: InterviewService,
-        private readonly elevenLabsService: ElevenLabsService
+        private readonly elevenLabsService: ElevenLabsService,
+        private readonly s3Service: AwsS3Service,
+        private readonly configService: ConfigService,
     ) { }
 
     @Get()
@@ -438,5 +446,55 @@ export class InterviewController {
         @Body() body: Record<string, unknown>
     ) {
         return this.elevenLabsService.updateAgent(agentId, body);
+    }
+
+    @Post("s3/create-multipart-upload")
+    @ApiOperation({ summary: "Create multipart upload" })
+    async createMultipartUpload(@Body() body: CreateMultipartUploadDto) {
+        const bucketName = this.configService.get<string>("env.s3.bucket");
+        if (!bucketName) {
+            throw new BadRequestException("Bucket name is required");
+        }
+        return this.s3Service.createMultipartUpload(bucketName, body.key);
+    }
+
+    @Post("s3/generate-presigned-url")
+    @ApiOperation({ summary: "Generate presigned URL" })
+    async generatePresignedUrl(@Body() body: GeneratePresignedUrlDto) {
+        const bucketName = this.configService.get<string>("env.s3.bucket");
+        if (!bucketName) {
+            throw new BadRequestException("Bucket name is required");
+        }
+        return this.s3Service.generatePresignedUrl(bucketName, body.key);
+    }
+
+    @Post("s3/generate-presigned-part-url")
+    @ApiOperation({ summary: "Generate presigned URL for multipart upload part" })
+    async generatePresignedPartUrl(@Body() body: GeneratePresignedPartUrlDto) {
+        const bucketName = this.configService.get<string>("env.s3.bucket");
+        if (!bucketName) {
+            throw new BadRequestException("Bucket name is required");
+        }
+        return this.s3Service.generatePresignedPartUrl(bucketName, body.key, body.uploadId, body.partNumber);
+    }
+
+    @Post("s3/complete-multipart-upload")
+    @ApiOperation({ summary: "Complete multipart upload" })
+    async completeMultipartUpload(@Body() body: CompleteMultipartUploadDto) {
+        const result = await this.s3Service.completeMultipartUpload(
+            body.bucketName,
+            body.key,
+            body.uploadId,
+            body.parts,
+        );
+        const match = /^interviews\/(\d+)\//.exec(body.key);
+        if (match) {
+            const sessionId = Number(match[1]);
+            const bucket = this.configService.get<string>("env.s3.bucket");
+            const region = this.configService.get<string>("env.s3.region") ?? "eu-central-1";
+            const recordUrl = `https://${bucket}.s3.${region}.amazonaws.com/${body.key}`;
+            await this.interviewService.updateInterviewSessionRecord(sessionId, recordUrl);
+        }
+        return result;
     }
 }

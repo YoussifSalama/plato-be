@@ -49,6 +49,7 @@ model InterviewSession{
     close_without_confirm_postpone_count Int @default(0)
 
     qa_log Json
+    record String?
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
