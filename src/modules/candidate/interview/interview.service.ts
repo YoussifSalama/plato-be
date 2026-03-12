@@ -9,7 +9,7 @@ import {
     InterviewSessionStatus
 } from '@generated/prisma';
 import { InjectQueue } from '@nestjs/bullmq';
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { Queue } from 'bullmq';
@@ -87,6 +87,95 @@ export class InterviewService {
             return null;
         }
         return JSON.parse(JSON.stringify(value)) as Prisma.JsonValue;
+    }
+
+    /** Resolve the owner candidate ID for an interview session (token.candidate_id or by resume email) */
+    private async resolveSessionOwnerCandidateId(interviewSessionId: number): Promise<number | null> {
+        const session = await this.prisma.interviewSession.findUnique({
+            where: { id: interviewSessionId },
+            include: {
+                invitation_token: {
+                    select: {
+                        candidate_id: true,
+                        invitation: {
+                            select: {
+                                to: {
+                                    include: {
+                                        resume_structured: { select: { data: true } },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        });
+        if (!session?.invitation_token) return null;
+        const token = session.invitation_token;
+        if (token.candidate_id) return token.candidate_id;
+        const resumeEmail = this.extractEmailFromResumeStructured(
+            token.invitation?.to?.resume_structured?.data
+        );
+        if (!resumeEmail) return null;
+        const candidate = await this.prisma.candidate.findFirst({
+            where: { email: resumeEmail },
+            select: { id: true },
+        });
+        return candidate?.id ?? null;
+    }
+
+    /** Assert the session is owned by the given candidate. Throws ForbiddenException if not. */
+    async assertSessionOwnedByCandidate(interviewSessionId: number, candidateId: number): Promise<void> {
+        const ownerId = await this.resolveSessionOwnerCandidateId(interviewSessionId);
+        if (ownerId === null) {
+            throw new ForbiddenException("Interview session has no identifiable owner.");
+        }
+        if (ownerId !== candidateId) {
+            throw new ForbiddenException("You do not have permission to access this interview session.");
+        }
+    }
+
+    /** Resolve owner for an invitation token and assert the candidate has access. */
+    private async assertInvitationTokenAccessibleByCandidate(
+        invitationTokenId: number,
+        candidateId: number
+    ): Promise<void> {
+        const token = await this.prisma.invitationToken.findUnique({
+            where: { id: invitationTokenId },
+            include: {
+                invitation: {
+                    select: {
+                        to: {
+                            include: {
+                                resume_structured: { select: { data: true } },
+                            },
+                        },
+                    },
+                },
+            },
+        });
+        if (!token) {
+            throw new BadRequestException("Invitation token not found.");
+        }
+        let ownerId: number | null = token.candidate_id;
+        if (ownerId === null) {
+            const resumeEmail = this.extractEmailFromResumeStructured(
+                token.invitation?.to?.resume_structured?.data
+            );
+            if (resumeEmail) {
+                const candidate = await this.prisma.candidate.findFirst({
+                    where: { email: resumeEmail },
+                    select: { id: true },
+                });
+                ownerId = candidate?.id ?? null;
+            }
+        }
+        if (ownerId === null) {
+            throw new ForbiddenException("Invitation token has no identifiable owner.");
+        }
+        if (ownerId !== candidateId) {
+            throw new ForbiddenException("You do not have permission to use this invitation token.");
+        }
     }
 
     private extractEmailFromResumeStructured(data: unknown): string | null {
@@ -420,7 +509,8 @@ export class InterviewService {
 
     }
 
-    async buildElevenLabsSessionContext(interviewSessionId: number) {
+    async buildElevenLabsSessionContext(interviewSessionId: number, candidateId: number) {
+        await this.assertSessionOwnedByCandidate(interviewSessionId, candidateId);
         const session = await this.prisma.interviewSession.findUnique({
             where: { id: interviewSessionId },
             include: {
@@ -524,7 +614,9 @@ export class InterviewService {
         interviewSessionId: number;
         conversationId: string;
         agentId: string;
+        candidateId: number;
     }) {
+        await this.assertSessionOwnedByCandidate(params.interviewSessionId, params.candidateId);
         const session = await this.prisma.interviewSession.findUnique({
             where: { id: params.interviewSessionId },
             select: { id: true, qa_log: true },
@@ -856,7 +948,8 @@ export class InterviewService {
         };
     }
 
-    async startInterviewSession(interviewTokenId: number) {
+    async startInterviewSession(interviewTokenId: number, candidateId: number) {
+        await this.assertInvitationTokenAccessibleByCandidate(interviewTokenId, candidateId);
         const resources = await this.prisma.interviewResources.findFirst({
             where: { invitation_token_id: interviewTokenId },
             select: { agency_id: true }
@@ -889,7 +982,7 @@ export class InterviewService {
 
         this.notifyInterviewStatus(session.id, InterviewSessionStatus.active).catch(() => { });
 
-        const runtimeContext = await this.buildElevenLabsSessionContext(session.id);
+        const runtimeContext = await this.buildElevenLabsSessionContext(session.id, candidateId);
         this.logger.log(`[startInterviewSession] lang=${selectedLanguage} runtimeContext=${JSON.stringify(runtimeContext)}`);
         return {
             interview_session_id: session.id,
@@ -936,7 +1029,11 @@ export class InterviewService {
         return Array.from(languages);
     }
 
-    async createInterviewResources(invitationToken: string, language?: "ar" | "en") {
+    async createInterviewResources(
+        invitationToken: string,
+        language: "ar" | "en" | undefined,
+        candidateId: number
+    ) {
         const token = await this.prisma.invitationToken.findFirst({
             where: { token: invitationToken },
             select: {
@@ -952,6 +1049,8 @@ export class InterviewService {
         if (!token || token.revoked || token.expires_at <= new Date()) {
             throw new BadRequestException("Invalid invitation token.");
         }
+
+        await this.assertInvitationTokenAccessibleByCandidate(token.id, candidateId);
 
         const invitation = await this.prisma.invitation.findUnique({
             where: { id: token.invitation_id },
@@ -1331,7 +1430,10 @@ export class InterviewService {
         );
     }
 
-    async cancelInterviewSession(interviewSessionId: number) {
+    async cancelInterviewSession(interviewSessionId: number, candidateId?: number) {
+        if (candidateId !== undefined) {
+            await this.assertSessionOwnedByCandidate(interviewSessionId, candidateId);
+        }
         const session = await this.prisma.interviewSession.findUnique({
             where: { id: interviewSessionId },
             include: { invitation_token: { select: { invitation_id: true } } },
@@ -1370,7 +1472,24 @@ export class InterviewService {
         return updatedSession;
     }
 
-    async completeInterviewSession(interviewSessionId: number) {
+    async phaseComplete(interviewSessionId: number, candidateId: number) {
+        await this.assertSessionOwnedByCandidate(interviewSessionId, candidateId);
+        const session = await this.prisma.interviewSession.findUnique({
+            where: { id: interviewSessionId },
+        });
+        if (!session) {
+            throw new BadRequestException("Interview session not found.");
+        }
+        if (session.status !== InterviewSessionStatus.active) {
+            throw new BadRequestException("Interview session is not active.");
+        }
+        return { message: "Phase marked complete." };
+    }
+
+    async completeInterviewSession(interviewSessionId: number, candidateId?: number) {
+        if (candidateId !== undefined) {
+            await this.assertSessionOwnedByCandidate(interviewSessionId, candidateId);
+        }
         const session = await this.prisma.interviewSession.findUnique({
             where: { id: interviewSessionId },
         });
@@ -1428,7 +1547,8 @@ export class InterviewService {
         return updatedSession;
     }
 
-    async getGeneratedProfile(interviewSessionId: number) {
+    async getGeneratedProfile(interviewSessionId: number, candidateId: number) {
+        await this.assertSessionOwnedByCandidate(interviewSessionId, candidateId);
         const session = await this.prisma.interviewSession.findUnique({
             where: { id: interviewSessionId },
             select: {
@@ -1584,9 +1704,13 @@ export class InterviewService {
     async postponeInterviewSession(
         interviewSessionId: number,
         mode: "immediate" | "pick_datetime" | "pick_date",
-        scheduledFor?: string,
-        scheduledForDate?: string
+        scheduledFor: string | undefined,
+        scheduledForDate: string | undefined,
+        candidateId?: number
     ) {
+        if (candidateId !== undefined) {
+            await this.assertSessionOwnedByCandidate(interviewSessionId, candidateId);
+        }
         const normalizeDateOnly = (date: Date) =>
             new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
         const now = new Date();
@@ -1806,8 +1930,10 @@ export class InterviewService {
     async appendQaLogEntry(
         interviewSessionId: number,
         role: "assistant" | "user",
-        content: string
+        content: string,
+        candidateId: number
     ) {
+        await this.assertSessionOwnedByCandidate(interviewSessionId, candidateId);
         if (!Number.isFinite(interviewSessionId) || interviewSessionId <= 0) {
             throw new BadRequestException("Invalid interview session id.");
         }
@@ -1847,8 +1973,10 @@ export class InterviewService {
 
     async trackModalDismissed(
         interviewSessionId: number,
-        modalType: "cancel" | "postpone"
+        modalType: "cancel" | "postpone",
+        candidateId: number
     ) {
+        await this.assertSessionOwnedByCandidate(interviewSessionId, candidateId);
         if (!Number.isFinite(interviewSessionId) || interviewSessionId <= 0) {
             throw new BadRequestException("Invalid interview session id.");
         }
@@ -1889,10 +2017,11 @@ export class InterviewService {
         });
     }
 
-    async recordRealtimeMetrics(body: RealtimeMetricsDto) {
+    async recordRealtimeMetrics(body: RealtimeMetricsDto, candidateId: number) {
         if (!body.interview_session_id) {
             return;
         }
+        await this.assertSessionOwnedByCandidate(body.interview_session_id, candidateId);
         const session = await this.prisma.interviewSession.findUnique({
             where: { id: body.interview_session_id },
             select: { id: true, qa_log: true },
@@ -1979,7 +2108,12 @@ export class InterviewService {
                     transitionAction === "postpone" &&
                     session.status !== InterviewSessionStatus.postponed
                 ) {
-                    await this.postponeInterviewSession(session.id, "immediate");
+                    await this.postponeInterviewSession(
+                        session.id,
+                        "immediate",
+                        undefined,
+                        undefined
+                    );
                 }
             } catch (error) {
                 existingLog.push({
