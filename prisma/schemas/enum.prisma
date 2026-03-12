@@ -174,3 +174,14 @@ enum CandidateInboxType{
     interview
     account
 }
+
+enum FeedbackFrom {
+  agency
+  candidate
+}
+
+enum FeedbackDecision {
+  shortlist
+  reject
+  advance_offline
+}
