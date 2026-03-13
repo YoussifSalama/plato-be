@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import * as jwt from "jsonwebtoken";
 import errorFormatter from "../helpers/error";
-import { AccessTokenPayload, RefreshTokenPayload } from "../types/services/jwt.types";
+import { AccessTokenPayload, RefreshTokenPayload, SessionTokenPayload } from "../types/services/jwt.types";
 
 
 @Injectable()
@@ -31,6 +31,14 @@ export class JwtService {
 
     verifyAccessToken(token: string): AccessTokenPayload {
         return jwt.verify(token, this.tokenSecrets.access) as AccessTokenPayload;
+    }
+
+    generateSessionToken(payload: SessionTokenPayload): string {
+        return jwt.sign(payload, this.tokenSecrets.access, { expiresIn: "1h" });
+    }
+
+    verifySessionToken(token: string): SessionTokenPayload {
+        return jwt.verify(token, this.tokenSecrets.access) as SessionTokenPayload;
     }
 
     private getRefreshTokenExpirationDate() {

@@ -43,6 +43,8 @@ import { createHash } from "crypto";
 import { IOpenAiKeyConfig } from 'src/shared/types/config/env.types';
 import { CandidateNotificationService } from '../notification/notification.service';
 import instructionsGuard from 'src/shared/ai/candidate/prompts/elevenlabs.interview-flow.prompt';
+import { JwtService } from 'src/shared/services/jwt.services';
+import { IJwtProvider } from 'src/shared/types/services/jwt.types';
 
 @Injectable()
 export class InterviewService {
@@ -58,6 +60,7 @@ export class InterviewService {
         private readonly sendGridService: SendGridService,
         private readonly randomUuidService: RandomUuidService,
         private readonly candidateNotificationService: CandidateNotificationService,
+        private readonly jwtService: JwtService,
         @InjectQueue('candidate_interview_generated_profile')
         private readonly generatedProfileQueue: Queue<{ interviewSessionId: number }>
     ) {
@@ -984,10 +987,16 @@ export class InterviewService {
 
         const runtimeContext = await this.buildElevenLabsSessionContext(session.id, candidateId);
         this.logger.log(`[startInterviewSession] lang=${selectedLanguage} runtimeContext=${JSON.stringify(runtimeContext)}`);
+        const sessionToken = this.jwtService.generateSessionToken({
+            id: candidateId,
+            provider: IJwtProvider.candidate_session,
+            interview_session_id: session.id,
+        });
         return {
             interview_session_id: session.id,
             language: selectedLanguage,
             runtime_context: runtimeContext,
+            session_token: sessionToken,
         };
     }
 

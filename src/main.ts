@@ -1,5 +1,6 @@
 import { NestFactory } from "@nestjs/core";
 import { NestExpressApplication } from "@nestjs/platform-express";
+import cors from "cors";
 import { AppModule } from "./app.module";
 import { ValidationPipe } from "@nestjs/common";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
@@ -24,7 +25,30 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     rawBody: true,
   });
-  app.enableCors();
+  const isDev = process.env.NODE_ENV !== "production";
+  const origins = [
+    ...(isDev ? ["http://localhost:3002", "http://localhost:3001"] : []),
+    process.env.FRONTEND_URL_CANDIDATE,
+    process.env.FRONTEND_URL,
+  ].filter((o): o is string => Boolean(o));
+  const allowedOrigins = new Set(
+    origins.length > 0 ? origins : ["http://localhost:3002", "http://localhost:3001"],
+  );
+
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        if (!origin || allowedOrigins.has(origin)) {
+          callback(null, true);
+        } else {
+          callback(new Error("Not allowed by CORS"));
+        }
+      },
+      credentials: true,
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
+    }),
+  );
   if (process.env.WEBSOCKET_REDIS_ADAPTER === "true") {
     const redisPortValue = Number(process.env.REDIS_PORT);
     const redisPort = Number.isFinite(redisPortValue) ? redisPortValue : 6379;

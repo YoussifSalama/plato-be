@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Get, Logger, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiTags } from "@nestjs/swagger";
 import { CandidateJwtAuthGuard } from "src/shared/guards/candidate-jwt-auth.guard";
+import { CandidateOrSessionJwtAuthGuard } from "src/shared/guards/candidate-or-session-jwt-auth.guard";
 import { JwtAuthGuard } from "src/shared/guards/jwt-auth.guard";
 import { AccessTokenPayload } from "src/shared/types/services/jwt.types";
 import { InterviewService } from "./interview.service";
@@ -125,7 +126,7 @@ export class InterviewController {
 
     @Post("start")
     @ApiBearerAuth("access-token")
-    @UseGuards(CandidateJwtAuthGuard)
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Start interview session (realtime flow)" })
     async startInterview(@Req() req: { user: AccessTokenPayload }, @Body() body: StartInterviewDto) {
         const startedAt = Date.now();
@@ -148,7 +149,7 @@ export class InterviewController {
 
     @Post("cancel")
     @ApiBearerAuth("access-token")
-    @UseGuards(CandidateJwtAuthGuard)
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Cancel interview session" })
     async cancelInterview(@Req() req: { user: AccessTokenPayload }, @Body() body: CancelInterviewDto) {
         const startedAt = Date.now();
@@ -173,7 +174,7 @@ export class InterviewController {
 
     @Post("phase-complete")
     @ApiBearerAuth("access-token")
-    @UseGuards(CandidateJwtAuthGuard)
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Mark interview phase as complete" })
     async phaseComplete(@Req() req: { user: AccessTokenPayload }, @Body() body: PhaseCompleteDto) {
         const startedAt = Date.now();
@@ -198,7 +199,7 @@ export class InterviewController {
 
     @Post("complete")
     @ApiBearerAuth("access-token")
-    @UseGuards(CandidateJwtAuthGuard)
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Complete interview session" })
     async completeInterview(@Req() req: { user: AccessTokenPayload }, @Body() body: CompleteInterviewDto) {
         const startedAt = Date.now();
@@ -223,7 +224,7 @@ export class InterviewController {
 
     @Get("generated-profile/:interviewSessionId")
     @ApiBearerAuth("access-token")
-    @UseGuards(CandidateJwtAuthGuard)
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Get generated candidate profile for interview session" })
     @ApiParam({ name: "interviewSessionId", example: 123 })
     async getGeneratedProfile(
@@ -252,7 +253,7 @@ export class InterviewController {
 
     @Post("postpone")
     @ApiBearerAuth("access-token")
-    @UseGuards(CandidateJwtAuthGuard)
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Postpone interview session" })
     async postponeInterview(@Req() req: { user: AccessTokenPayload }, @Body() body: PostponeInterviewDto) {
         const startedAt = Date.now();
@@ -280,7 +281,7 @@ export class InterviewController {
 
     @Post("qa-log")
     @ApiBearerAuth("access-token")
-    @UseGuards(CandidateJwtAuthGuard)
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Append interview QA log entry" })
     async appendQaLog(@Req() req: { user: AccessTokenPayload }, @Body() body: AppendQaLogDto) {
         const startedAt = Date.now();
@@ -307,7 +308,7 @@ export class InterviewController {
 
     @Post("modal-dismissed")
     @ApiBearerAuth("access-token")
-    @UseGuards(CandidateJwtAuthGuard)
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Track cancel/postpone modal close without confirmation" })
     async trackModalDismissed(@Req() req: { user: AccessTokenPayload }, @Body() body: ModalDismissedDto) {
         const startedAt = Date.now();
@@ -335,7 +336,7 @@ export class InterviewController {
 
     @Post("realtime/session")
     @ApiBearerAuth("access-token")
-    @UseGuards(CandidateJwtAuthGuard)
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Create OpenAI realtime session" })
     async createRealtimeSession(
         @Body()
@@ -365,7 +366,7 @@ export class InterviewController {
 
     @Post("elevenlabs-signed-url")
     @ApiBearerAuth("access-token")
-    @UseGuards(CandidateJwtAuthGuard)
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Get ElevenLabs signed WebSocket URL" })
     async getElevenLabsSignedUrl(
         @Req() req: { user: AccessTokenPayload },
@@ -413,7 +414,7 @@ export class InterviewController {
 
     @Post("realtime/metrics")
     @ApiBearerAuth("access-token")
-    @UseGuards(CandidateJwtAuthGuard)
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Collect realtime interview quality metrics" })
     async collectRealtimeMetrics(@Req() req: { user: AccessTokenPayload }, @Body() body: RealtimeMetricsDto) {
         this.logger.log(
@@ -485,7 +486,7 @@ export class InterviewController {
 
     @Get("session-context/:interviewSessionId")
     @ApiBearerAuth("access-token")
-    @UseGuards(CandidateJwtAuthGuard)
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Get deterministic ElevenLabs session context" })
     async getSessionContext(
         @Req() req: { user: AccessTokenPayload },
@@ -535,7 +536,7 @@ export class InterviewController {
 
     @Post("s3/create-multipart-upload")
     @ApiBearerAuth("access-token")
-    @UseGuards(CandidateJwtAuthGuard)
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Create multipart upload" })
     async createMultipartUpload(
         @Req() req: { user: AccessTokenPayload },
@@ -557,7 +558,7 @@ export class InterviewController {
 
     @Post("s3/generate-presigned-url")
     @ApiBearerAuth("access-token")
-    @UseGuards(CandidateJwtAuthGuard)
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Generate presigned URL" })
     async generatePresignedUrl(
         @Req() req: { user: AccessTokenPayload },
@@ -579,7 +580,7 @@ export class InterviewController {
 
     @Post("s3/generate-presigned-part-url")
     @ApiBearerAuth("access-token")
-    @UseGuards(CandidateJwtAuthGuard)
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Generate presigned URL for multipart upload part" })
     async generatePresignedPartUrl(
         @Req() req: { user: AccessTokenPayload },
@@ -601,7 +602,7 @@ export class InterviewController {
 
     @Post("s3/complete-multipart-upload")
     @ApiBearerAuth("access-token")
-    @UseGuards(CandidateJwtAuthGuard)
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Complete multipart upload" })
     async completeMultipartUpload(
         @Req() req: { user: AccessTokenPayload },

@@ -23,7 +23,10 @@ const agencyRoom = (agencyId: number) => `agency:${agencyId}`;
 @WebSocketGateway({
     namespace: "/agency",
     cors: {
-        origin: "*",
+        origin:
+            process.env.NODE_ENV !== 'production'
+                ? ['http://localhost:3001', process.env.FRONTEND_URL].filter(Boolean)
+                : process.env.FRONTEND_URL || 'http://localhost:3001',
         credentials: true,
     },
 })
