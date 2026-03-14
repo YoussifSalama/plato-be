@@ -201,6 +201,28 @@ export class InterviewService {
         return payload.name ?? fallback ?? null;
     }
 
+    private isInvitationTokenCurrentlyUsable(token: {
+        revoked: boolean;
+        expires_at: Date;
+        status: InvitationTokenStatus;
+    }): boolean {
+        return !token.revoked && token.expires_at > new Date() && token.status !== InvitationTokenStatus.invalid;
+    }
+
+    private async assertInvitationTokenUsableById(invitationTokenId: number): Promise<void> {
+        const token = await this.prisma.invitationToken.findUnique({
+            where: { id: invitationTokenId },
+            select: {
+                revoked: true,
+                expires_at: true,
+                status: true,
+            },
+        });
+        if (!token || !this.isInvitationTokenCurrentlyUsable(token)) {
+            throw new BadRequestException("Invalid invitation token.");
+        }
+    }
+
     private async resolveInterviewHistory(candidateId: number | null, jobId: number) {
         if (!candidateId) {
             return {
@@ -355,17 +377,35 @@ export class InterviewService {
         return value === "en" ? "en" : "ar";
     }
 
+    private extractFirstName(fullName: string): string {
+        const trimmed = fullName.trim();
+        if (!trimmed) return "Candidate";
+        const firstPart = trimmed.split(/\s+/)[0];
+        return firstPart || "Candidate";
+    }
+
+    /** Normalize name for TTS — ElevenLabs interprets capitalized text as excitement/emphasis. */
+    private toTtsFriendlyName(name: string): string {
+        const trimmed = name.trim();
+        if (!trimmed) return trimmed;
+        if (!/[A-Za-z]/.test(trimmed)) return trimmed; // Arabic / non-Latin — no case changes
+        return trimmed
+            .split(/\s+/)
+            .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+            .join(" ");
+    }
+
     private extractCandidateNameFromSessionContext(params: {
         candidate: { candidate_name?: string | null; f_name?: string | null; l_name?: string | null } | null;
         resumeSnapshot: unknown;
     }): string {
         const candidateName = params.candidate?.candidate_name?.trim();
-        if (candidateName) return candidateName;
+        if (candidateName) return this.extractFirstName(candidateName);
         const fullName = [params.candidate?.f_name]
             .map((part) => (typeof part === "string" ? part.trim() : ""))
             .filter(Boolean)
             .join(" ");
-        if (fullName) return fullName;
+        if (fullName) return this.extractFirstName(fullName);
 
         const snapshot = params.resumeSnapshot as
             | {
@@ -375,11 +415,11 @@ export class InterviewService {
             | undefined;
         const structuredName = snapshot?.structured?.data?.name;
         if (typeof structuredName === "string" && structuredName.trim()) {
-            return structuredName.trim();
+            return this.extractFirstName(structuredName.trim());
         }
         const resumeName = snapshot?.resume?.name;
         if (typeof resumeName === "string" && resumeName.trim()) {
-            return resumeName.trim();
+            return this.extractFirstName(resumeName.trim());
         }
         return "Candidate";
     }
@@ -558,6 +598,7 @@ export class InterviewService {
             candidate: session.invitation_token.candidate,
             resumeSnapshot,
         });
+        const ttsFriendlyName = this.toTtsFriendlyName(candidateName);
         const jobTitle = typeof jobSnapshot.title === "string" && jobSnapshot.title.trim()
             ? jobSnapshot.title.trim()
             : "the role";
@@ -566,7 +607,7 @@ export class InterviewService {
             : "our company";
         const firstMessage = this.buildFirstMessage({
             language,
-            candidateName,
+            candidateName: ttsFriendlyName,
             jobTitle,
             agencyName,
         });
@@ -589,7 +630,7 @@ export class InterviewService {
             interview_session_id: session.id,
             language,
             dialect: language === "ar" ? "ar-EG" : "en",
-            candidate_name: candidateName,
+            candidate_name: ttsFriendlyName,
             first_message: firstMessage,
             // instrutions: instructionsGuard,
             // instructions,
@@ -598,7 +639,7 @@ export class InterviewService {
                 interview_session_id: String(session.id),
                 interview_language: language,
                 interview_dialect: language === "ar" ? "ar-EG" : "en",
-                candidate_name: candidateName,
+                candidate_name: ttsFriendlyName,
                 prepared_questions:
                     preparedQuestions.length > 0
                         ? preparedQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")
@@ -882,6 +923,7 @@ export class InterviewService {
     }
 
     async startInterviewWithWelcome(interviewTokenId: number, includeSpeech = true) {
+        await this.assertInvitationTokenUsableById(interviewTokenId);
         const resources = await this.prisma.interviewResources.findFirst({
             where: { invitation_token_id: interviewTokenId },
             select: { agency_id: true }
@@ -953,6 +995,7 @@ export class InterviewService {
 
     async startInterviewSession(interviewTokenId: number, candidateId: number) {
         await this.assertInvitationTokenAccessibleByCandidate(interviewTokenId, candidateId);
+        await this.assertInvitationTokenUsableById(interviewTokenId);
         const resources = await this.prisma.interviewResources.findFirst({
             where: { invitation_token_id: interviewTokenId },
             select: { agency_id: true }
@@ -1055,7 +1098,7 @@ export class InterviewService {
             },
         });
 
-        if (!token || token.revoked || token.expires_at <= new Date()) {
+        if (!token || !this.isInvitationTokenCurrentlyUsable(token)) {
             throw new BadRequestException("Invalid invitation token.");
         }
 
@@ -1313,13 +1356,21 @@ export class InterviewService {
 
         const statusWhere: Prisma.InvitationTokenWhereInput =
             status === "active"
-                ? { revoked: false, expires_at: { gt: now } }
+                ? {
+                    revoked: false,
+                    expires_at: { gt: now },
+                    status: InvitationTokenStatus.valid,
+                }
                 : status === "revoked"
                     ? { revoked: true }
                     : status === "expired" || status === "invalid"
                         ? { OR: [{ revoked: true }, { expires_at: { lte: now } }, { status: "invalid" }] }
                         : status === "in_use"
-                            ? { status: "in_use" }
+                            ? {
+                                revoked: false,
+                                expires_at: { gt: now },
+                                status: InvitationTokenStatus.in_use,
+                            }
                             : {};
 
         const searchWhere: Prisma.InvitationTokenWhereInput = search
@@ -1402,12 +1453,16 @@ export class InterviewService {
             const session = (token as any).interview_session;
             const agencyFeedback = session?.feedbacks?.find((f: any) => f.from === 'agency');
             const candidateFeedback = session?.feedbacks?.find((f: any) => f.from === 'candidate');
+            const effectiveStatus =
+                token.revoked || token.expires_at <= now || token.status === InvitationTokenStatus.invalid
+                    ? InvitationTokenStatus.invalid
+                    : token.status;
 
             return {
                 id: token.id,
                 token: token.token,
                 revoked: token.revoked,
-                status: token.status,
+                status: effectiveStatus,
                 expires_at: token.expires_at,
                 created_at: token.created_at,
                 agency: token.invitation?.from ?? null,
@@ -1465,7 +1520,10 @@ export class InterviewService {
             await tx.invitationToken.updateMany({
                 where: {
                     invitation_id: invitationId,
-                    revoked: false,
+                    OR: [
+                        { revoked: false },
+                        { status: { not: InvitationTokenStatus.invalid } },
+                    ],
                 },
                 data: { revoked: true, status: InvitationTokenStatus.invalid },
             });
@@ -1856,7 +1914,10 @@ export class InterviewService {
             await tx.invitationToken.updateMany({
                 where: {
                     invitation_id: invitation.id,
-                    revoked: false,
+                    OR: [
+                        { revoked: false },
+                        { status: { not: InvitationTokenStatus.invalid } },
+                    ],
                 },
                 data: {
                     revoked: true,
@@ -1870,6 +1931,7 @@ export class InterviewService {
                     expires_at: newTokenExpiresAt,
                     invitation_id: invitation.id,
                     candidate_id: resolvedCandidateId,
+                    status: InvitationTokenStatus.valid,
                 },
                 select: { token: true, expires_at: true },
             });
