@@ -1438,6 +1438,7 @@ export class InterviewService {
                                     from: true,
                                     decision: true,
                                     rating: true,
+                                    selected_date: true,
                                 }
                             }
                         },
@@ -1478,6 +1479,7 @@ export class InterviewService {
                 agency_decision: agencyFeedback ? agencyFeedback.decision : null,
                 is_candidate_submitted: !!candidateFeedback,
                 is_agency_submitted: !!agencyFeedback,
+                selected_date: candidateFeedback ? candidateFeedback.selected_date : null,
             };
         });
 

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Req, UseGuards, InternalServerErrorException } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Post, Req, UseGuards, InternalServerErrorException, Query } from '@nestjs/common';
 
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from 'src/shared/guards/jwt-auth.guard';
@@ -26,6 +26,18 @@ export class FeedbackController {
     @ApiOperation({ summary: 'Submit feedback as a candidate' })
     async submitCandidateFeedback(@Req() req: any, @Body() dto: SubmitFeedbackDto) {
         return this.feedbackService.submitFeedback(req.user.id, FeedbackFrom.candidate, dto);
+    }
+
+    @Get('agency/all')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'Get all candidate feedback for the agency' })
+    async getAllAgencyFeedback(
+        @Req() req: any,
+        @Query('page') page?: string,
+        @Query('limit') limit?: string
+    ) {
+        return this.feedbackService.getAllAgencyFeedbacks(req.user.id, { page: page ? parseInt(page, 10) : 1, limit: limit ? parseInt(limit, 10) : 10 });
     }
 
     @Get('agency/session/:id')
