@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Logger, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Logger, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiTags } from "@nestjs/swagger";
 import { CandidateJwtAuthGuard } from "src/shared/guards/candidate-jwt-auth.guard";
+import { CandidateOrSessionJwtAuthGuard } from "src/shared/guards/candidate-or-session-jwt-auth.guard";
 import { JwtAuthGuard } from "src/shared/guards/jwt-auth.guard";
 import { AccessTokenPayload } from "src/shared/types/services/jwt.types";
 import { InterviewService } from "./interview.service";
@@ -9,14 +10,21 @@ import { CancelInterviewDto } from "./dto/cancel-interview.dto";
 import { AppendQaLogDto } from "./dto/append-qa-log.dto";
 import { StartInterviewDto } from "./dto/start-interview.dto";
 import { CompleteInterviewDto } from "./dto/complete-interview.dto";
+import { PhaseCompleteDto } from "./dto/phase-complete.dto";
 import { PostponeInterviewDto } from "./dto/postpone-interview.dto";
 import { RealtimeMetricsDto } from "./dto/realtime-metrics.dto";
 import { ModalDismissedDto } from "./dto/modal-dismissed.dto";
 import { ElevenLabsSignedUrlDto } from "./dto/elevenlabs-signed-url.dto";
+import { CreateMultipartUploadDto } from "./dto/create-multipart-upload.dto";
+import { CompleteMultipartUploadDto } from "./dto/complete-multipart-upload.dto";
+import { GeneratePresignedUrlDto } from "./dto/generate-presigned-url.dto";
+import { GeneratePresignedPartUrlDto } from "./dto/generate-presigned-part-url.dto";
 import {
     extractInterviewSessionIdFromWebhookPayload,
     verifyElevenLabsWebhookSignature,
 } from "./elevenlabs-webhook.util";
+import { AwsS3Service } from "src/shared/helpers/aws/s3/s3.service";
+import { ConfigService } from "@nestjs/config";
 
 @ApiTags("Interview")
 @Controller("interview")
@@ -25,7 +33,9 @@ export class InterviewController {
 
     constructor(
         private readonly interviewService: InterviewService,
-        private readonly elevenLabsService: ElevenLabsService
+        private readonly elevenLabsService: ElevenLabsService,
+        private readonly s3Service: AwsS3Service,
+        private readonly configService: ConfigService,
     ) { }
 
     @Get()
@@ -78,6 +88,8 @@ export class InterviewController {
     }
 
     @Post("resources/:token")
+    @ApiBearerAuth("access-token")
+    @UseGuards(CandidateJwtAuthGuard)
     @ApiOperation({ summary: "Create interview resources from invitation token" })
     @ApiParam({ name: "token", example: "invitation-token" })
     @ApiQuery({
@@ -87,6 +99,7 @@ export class InterviewController {
         example: "ar",
     })
     async createInterviewResources(
+        @Req() req: { user: AccessTokenPayload },
         @Param("token") token: string,
         @Query("language") language?: "ar" | "en"
     ) {
@@ -95,7 +108,11 @@ export class InterviewController {
         const startedAt = Date.now();
         this.logger.log(`resources.start token=${token} lang=${selectedLanguage ?? "auto"}`);
         try {
-            const result = await this.interviewService.createInterviewResources(token, selectedLanguage);
+            const result = await this.interviewService.createInterviewResources(
+                token,
+                selectedLanguage,
+                req.user.id
+            );
             this.logger.log(`resources.done token=${token} ms=${Date.now() - startedAt}`);
             return result;
         } catch (error) {
@@ -108,12 +125,17 @@ export class InterviewController {
     }
 
     @Post("start")
+    @ApiBearerAuth("access-token")
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Start interview session (realtime flow)" })
-    async startInterview(@Body() body: StartInterviewDto) {
+    async startInterview(@Req() req: { user: AccessTokenPayload }, @Body() body: StartInterviewDto) {
         const startedAt = Date.now();
         this.logger.log(`start.start token_id=${body.interview_token}`);
         try {
-            const result = await this.interviewService.startInterviewSession(body.interview_token);
+            const result = await this.interviewService.startInterviewSession(
+                body.interview_token,
+                req.user.id
+            );
             this.logger.log(`start.done token_id=${body.interview_token} ms=${Date.now() - startedAt}`);
             return result;
         } catch (error) {
@@ -126,13 +148,16 @@ export class InterviewController {
     }
 
     @Post("cancel")
+    @ApiBearerAuth("access-token")
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Cancel interview session" })
-    async cancelInterview(@Body() body: CancelInterviewDto) {
+    async cancelInterview(@Req() req: { user: AccessTokenPayload }, @Body() body: CancelInterviewDto) {
         const startedAt = Date.now();
         this.logger.log(`cancel.start session=${body.interview_session_id}`);
         try {
             const result = await this.interviewService.cancelInterviewSession(
-                body.interview_session_id
+                body.interview_session_id,
+                req.user.id
             );
             this.logger.log(
                 `cancel.done session=${body.interview_session_id} ms=${Date.now() - startedAt}`
@@ -147,14 +172,42 @@ export class InterviewController {
         }
     }
 
+    @Post("phase-complete")
+    @ApiBearerAuth("access-token")
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
+    @ApiOperation({ summary: "Mark interview phase as complete" })
+    async phaseComplete(@Req() req: { user: AccessTokenPayload }, @Body() body: PhaseCompleteDto) {
+        const startedAt = Date.now();
+        this.logger.log(`phase-complete.start session=${body.interview_session_id}`);
+        try {
+            const result = await this.interviewService.phaseComplete(
+                body.interview_session_id,
+                req.user.id
+            );
+            this.logger.log(
+                `phase-complete.done session=${body.interview_session_id} ms=${Date.now() - startedAt}`
+            );
+            return result;
+        } catch (error) {
+            this.logger.error(
+                `phase-complete.failed session=${body.interview_session_id} ms=${Date.now() - startedAt}`,
+                error instanceof Error ? error.stack : undefined
+            );
+            throw error;
+        }
+    }
+
     @Post("complete")
+    @ApiBearerAuth("access-token")
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Complete interview session" })
-    async completeInterview(@Body() body: CompleteInterviewDto) {
+    async completeInterview(@Req() req: { user: AccessTokenPayload }, @Body() body: CompleteInterviewDto) {
         const startedAt = Date.now();
         this.logger.log(`complete.start session=${body.interview_session_id}`);
         try {
             const result = await this.interviewService.completeInterviewSession(
-                body.interview_session_id
+                body.interview_session_id,
+                req.user.id
             );
             this.logger.log(
                 `complete.done session=${body.interview_session_id} ms=${Date.now() - startedAt}`
@@ -170,13 +223,21 @@ export class InterviewController {
     }
 
     @Get("generated-profile/:interviewSessionId")
+    @ApiBearerAuth("access-token")
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Get generated candidate profile for interview session" })
     @ApiParam({ name: "interviewSessionId", example: 123 })
-    async getGeneratedProfile(@Param("interviewSessionId") interviewSessionId: string) {
+    async getGeneratedProfile(
+        @Req() req: { user: AccessTokenPayload },
+        @Param("interviewSessionId") interviewSessionId: string
+    ) {
         const startedAt = Date.now();
         this.logger.log(`generated-profile.start session=${interviewSessionId}`);
         try {
-            const result = await this.interviewService.getGeneratedProfile(Number(interviewSessionId));
+            const result = await this.interviewService.getGeneratedProfile(
+                Number(interviewSessionId),
+                req.user.id
+            );
             this.logger.log(
                 `generated-profile.done session=${interviewSessionId} ms=${Date.now() - startedAt}`
             );
@@ -191,8 +252,10 @@ export class InterviewController {
     }
 
     @Post("postpone")
+    @ApiBearerAuth("access-token")
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Postpone interview session" })
-    async postponeInterview(@Body() body: PostponeInterviewDto) {
+    async postponeInterview(@Req() req: { user: AccessTokenPayload }, @Body() body: PostponeInterviewDto) {
         const startedAt = Date.now();
         this.logger.log(`postpone.start session=${body.interview_session_id}`);
         try {
@@ -200,7 +263,8 @@ export class InterviewController {
                 body.interview_session_id,
                 body.mode,
                 body.scheduled_for,
-                body.scheduled_for_date
+                body.scheduled_for_date,
+                req.user.id
             );
             this.logger.log(
                 `postpone.done session=${body.interview_session_id} ms=${Date.now() - startedAt}`
@@ -216,15 +280,18 @@ export class InterviewController {
     }
 
     @Post("qa-log")
+    @ApiBearerAuth("access-token")
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Append interview QA log entry" })
-    async appendQaLog(@Body() body: AppendQaLogDto) {
+    async appendQaLog(@Req() req: { user: AccessTokenPayload }, @Body() body: AppendQaLogDto) {
         const startedAt = Date.now();
         this.logger.log(`qa-log.start session=${body.interview_session_id} role=${body.role}`);
         try {
             const result = await this.interviewService.appendQaLogEntry(
                 body.interview_session_id,
                 body.role,
-                body.content
+                body.content,
+                req.user.id
             );
             this.logger.log(
                 `qa-log.done session=${body.interview_session_id} ms=${Date.now() - startedAt}`
@@ -240,8 +307,10 @@ export class InterviewController {
     }
 
     @Post("modal-dismissed")
+    @ApiBearerAuth("access-token")
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Track cancel/postpone modal close without confirmation" })
-    async trackModalDismissed(@Body() body: ModalDismissedDto) {
+    async trackModalDismissed(@Req() req: { user: AccessTokenPayload }, @Body() body: ModalDismissedDto) {
         const startedAt = Date.now();
         this.logger.log(
             `modal-dismissed.start session=${body.interview_session_id} type=${body.modal_type}`
@@ -249,7 +318,8 @@ export class InterviewController {
         try {
             const result = await this.interviewService.trackModalDismissed(
                 body.interview_session_id,
-                body.modal_type
+                body.modal_type,
+                req.user.id
             );
             this.logger.log(
                 `modal-dismissed.done session=${body.interview_session_id} ms=${Date.now() - startedAt}`
@@ -265,6 +335,8 @@ export class InterviewController {
     }
 
     @Post("realtime/session")
+    @ApiBearerAuth("access-token")
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Create OpenAI realtime session" })
     async createRealtimeSession(
         @Body()
@@ -293,13 +365,24 @@ export class InterviewController {
     }
 
     @Post("elevenlabs-signed-url")
+    @ApiBearerAuth("access-token")
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Get ElevenLabs signed WebSocket URL" })
-    async getElevenLabsSignedUrl(@Body() body: ElevenLabsSignedUrlDto) {
+    async getElevenLabsSignedUrl(
+        @Req() req: { user: AccessTokenPayload },
+        @Body() body: ElevenLabsSignedUrlDto
+    ) {
         const startedAt = Date.now();
         this.logger.log(
             `elevenlabs-signed-url.start agent=${body.agent_id ?? "default"} session=${body.interview_session_id ?? "none"}`
         );
         try {
+            if (body.interview_session_id) {
+                await this.interviewService.assertSessionOwnedByCandidate(
+                    body.interview_session_id,
+                    req.user.id
+                );
+            }
             const result = await this.elevenLabsService.getSignedUrl({
                 agentId: body.agent_id,
                 includeConversationId: body.include_conversation_id,
@@ -315,6 +398,7 @@ export class InterviewController {
                     interviewSessionId: body.interview_session_id,
                     conversationId: result.conversation_id,
                     agentId: result.agent_id,
+                    candidateId: req.user.id,
                 });
             }
             this.logger.log(`elevenlabs-signed-url.done ms=${Date.now() - startedAt}`);
@@ -329,8 +413,10 @@ export class InterviewController {
     }
 
     @Post("realtime/metrics")
+    @ApiBearerAuth("access-token")
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Collect realtime interview quality metrics" })
-    async collectRealtimeMetrics(@Body() body: RealtimeMetricsDto) {
+    async collectRealtimeMetrics(@Req() req: { user: AccessTokenPayload }, @Body() body: RealtimeMetricsDto) {
         this.logger.log(
             [
                 "realtime.metrics",
@@ -345,7 +431,7 @@ export class InterviewController {
                 `reason=${body.reason}`,
             ].join(" ")
         );
-        await this.interviewService.recordRealtimeMetrics(body);
+        await this.interviewService.recordRealtimeMetrics(body, req.user.id);
         return { ok: true };
     }
 
@@ -399,9 +485,17 @@ export class InterviewController {
     }
 
     @Get("session-context/:interviewSessionId")
+    @ApiBearerAuth("access-token")
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
     @ApiOperation({ summary: "Get deterministic ElevenLabs session context" })
-    async getSessionContext(@Param("interviewSessionId") interviewSessionId: string) {
-        return this.interviewService.buildElevenLabsSessionContext(Number(interviewSessionId));
+    async getSessionContext(
+        @Req() req: { user: AccessTokenPayload },
+        @Param("interviewSessionId") interviewSessionId: string
+    ) {
+        return this.interviewService.buildElevenLabsSessionContext(
+            Number(interviewSessionId),
+            req.user.id
+        );
     }
 
     @Get("elevenlabs/agents")
@@ -438,5 +532,97 @@ export class InterviewController {
         @Body() body: Record<string, unknown>
     ) {
         return this.elevenLabsService.updateAgent(agentId, body);
+    }
+
+    @Post("s3/create-multipart-upload")
+    @ApiBearerAuth("access-token")
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
+    @ApiOperation({ summary: "Create multipart upload" })
+    async createMultipartUpload(
+        @Req() req: { user: AccessTokenPayload },
+        @Body() body: CreateMultipartUploadDto
+    ) {
+        const match = /^interviews\/(\d+)\//.exec(body.key);
+        if (match) {
+            await this.interviewService.assertSessionOwnedByCandidate(
+                Number(match[1]),
+                req.user.id
+            );
+        }
+        const bucketName = this.configService.get<string>("env.s3.bucket");
+        if (!bucketName) {
+            throw new BadRequestException("Bucket name is required");
+        }
+        return this.s3Service.createMultipartUpload(bucketName, body.key);
+    }
+
+    @Post("s3/generate-presigned-url")
+    @ApiBearerAuth("access-token")
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
+    @ApiOperation({ summary: "Generate presigned URL" })
+    async generatePresignedUrl(
+        @Req() req: { user: AccessTokenPayload },
+        @Body() body: GeneratePresignedUrlDto
+    ) {
+        const match = /^interviews\/(\d+)\//.exec(body.key);
+        if (match) {
+            await this.interviewService.assertSessionOwnedByCandidate(
+                Number(match[1]),
+                req.user.id
+            );
+        }
+        const bucketName = this.configService.get<string>("env.s3.bucket");
+        if (!bucketName) {
+            throw new BadRequestException("Bucket name is required");
+        }
+        return this.s3Service.generatePresignedUrl(bucketName, body.key);
+    }
+
+    @Post("s3/generate-presigned-part-url")
+    @ApiBearerAuth("access-token")
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
+    @ApiOperation({ summary: "Generate presigned URL for multipart upload part" })
+    async generatePresignedPartUrl(
+        @Req() req: { user: AccessTokenPayload },
+        @Body() body: GeneratePresignedPartUrlDto
+    ) {
+        const match = /^interviews\/(\d+)\//.exec(body.key);
+        if (match) {
+            await this.interviewService.assertSessionOwnedByCandidate(
+                Number(match[1]),
+                req.user.id
+            );
+        }
+        const bucketName = this.configService.get<string>("env.s3.bucket");
+        if (!bucketName) {
+            throw new BadRequestException("Bucket name is required");
+        }
+        return this.s3Service.generatePresignedPartUrl(bucketName, body.key, body.uploadId, body.partNumber);
+    }
+
+    @Post("s3/complete-multipart-upload")
+    @ApiBearerAuth("access-token")
+    @UseGuards(CandidateOrSessionJwtAuthGuard)
+    @ApiOperation({ summary: "Complete multipart upload" })
+    async completeMultipartUpload(
+        @Req() req: { user: AccessTokenPayload },
+        @Body() body: CompleteMultipartUploadDto
+    ) {
+        const result = await this.s3Service.completeMultipartUpload(
+            body.bucketName,
+            body.key,
+            body.uploadId,
+            body.parts,
+        );
+        const match = /^interviews\/(\d+)\//.exec(body.key);
+        if (match) {
+            const sessionId = Number(match[1]);
+            await this.interviewService.assertSessionOwnedByCandidate(sessionId, req.user.id);
+            const bucket = this.configService.get<string>("env.s3.bucket");
+            const region = this.configService.get<string>("env.s3.region") ?? "eu-central-1";
+            const recordUrl = `https://${bucket}.s3.${region}.amazonaws.com/${body.key}`;
+            await this.interviewService.updateInterviewSessionRecord(sessionId, recordUrl);
+        }
+        return result;
     }
 }

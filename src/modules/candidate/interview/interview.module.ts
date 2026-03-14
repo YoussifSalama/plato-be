@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from 'src/modules/prisma/prisma.module';
 import { JwtService } from 'src/shared/services/jwt.services';
 import { CandidateJwtAuthGuard } from 'src/shared/guards/candidate-jwt-auth.guard';
+import { CandidateOrSessionJwtAuthGuard } from 'src/shared/guards/candidate-or-session-jwt-auth.guard';
 import { InterviewController } from './interview.controller';
 import { InterviewService } from './interview.service';
 import { ElevenLabsService } from './elevenlabs.service';
@@ -28,12 +29,13 @@ import { CandidateNotificationModule } from '../notification/notification.module
     }),
   ],
   controllers: [InterviewController],
-  providers: [
+    providers: [
     InterviewService,
     ElevenLabsService,
     InterviewGateway,
     JwtService,
     CandidateJwtAuthGuard,
+    CandidateOrSessionJwtAuthGuard,
     PaginationHelper,
     OpenAiService,
     RandomUuidService,

@@ -9,7 +9,7 @@ import {
     InterviewSessionStatus
 } from '@generated/prisma';
 import { InjectQueue } from '@nestjs/bullmq';
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { Queue } from 'bullmq';
@@ -43,6 +43,8 @@ import { createHash } from "crypto";
 import { IOpenAiKeyConfig } from 'src/shared/types/config/env.types';
 import { CandidateNotificationService } from '../notification/notification.service';
 import instructionsGuard from 'src/shared/ai/candidate/prompts/elevenlabs.interview-flow.prompt';
+import { JwtService } from 'src/shared/services/jwt.services';
+import { IJwtProvider } from 'src/shared/types/services/jwt.types';
 
 @Injectable()
 export class InterviewService {
@@ -58,6 +60,7 @@ export class InterviewService {
         private readonly sendGridService: SendGridService,
         private readonly randomUuidService: RandomUuidService,
         private readonly candidateNotificationService: CandidateNotificationService,
+        private readonly jwtService: JwtService,
         @InjectQueue('candidate_interview_generated_profile')
         private readonly generatedProfileQueue: Queue<{ interviewSessionId: number }>
     ) {
@@ -89,6 +92,95 @@ export class InterviewService {
         return JSON.parse(JSON.stringify(value)) as Prisma.JsonValue;
     }
 
+    /** Resolve the owner candidate ID for an interview session (token.candidate_id or by resume email) */
+    private async resolveSessionOwnerCandidateId(interviewSessionId: number): Promise<number | null> {
+        const session = await this.prisma.interviewSession.findUnique({
+            where: { id: interviewSessionId },
+            include: {
+                invitation_token: {
+                    select: {
+                        candidate_id: true,
+                        invitation: {
+                            select: {
+                                to: {
+                                    include: {
+                                        resume_structured: { select: { data: true } },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        });
+        if (!session?.invitation_token) return null;
+        const token = session.invitation_token;
+        if (token.candidate_id) return token.candidate_id;
+        const resumeEmail = this.extractEmailFromResumeStructured(
+            token.invitation?.to?.resume_structured?.data
+        );
+        if (!resumeEmail) return null;
+        const candidate = await this.prisma.candidate.findFirst({
+            where: { email: resumeEmail },
+            select: { id: true },
+        });
+        return candidate?.id ?? null;
+    }
+
+    /** Assert the session is owned by the given candidate. Throws ForbiddenException if not. */
+    async assertSessionOwnedByCandidate(interviewSessionId: number, candidateId: number): Promise<void> {
+        const ownerId = await this.resolveSessionOwnerCandidateId(interviewSessionId);
+        if (ownerId === null) {
+            throw new ForbiddenException("Interview session has no identifiable owner.");
+        }
+        if (ownerId !== candidateId) {
+            throw new ForbiddenException("You do not have permission to access this interview session.");
+        }
+    }
+
+    /** Resolve owner for an invitation token and assert the candidate has access. */
+    private async assertInvitationTokenAccessibleByCandidate(
+        invitationTokenId: number,
+        candidateId: number
+    ): Promise<void> {
+        const token = await this.prisma.invitationToken.findUnique({
+            where: { id: invitationTokenId },
+            include: {
+                invitation: {
+                    select: {
+                        to: {
+                            include: {
+                                resume_structured: { select: { data: true } },
+                            },
+                        },
+                    },
+                },
+            },
+        });
+        if (!token) {
+            throw new BadRequestException("Invitation token not found.");
+        }
+        let ownerId: number | null = token.candidate_id;
+        if (ownerId === null) {
+            const resumeEmail = this.extractEmailFromResumeStructured(
+                token.invitation?.to?.resume_structured?.data
+            );
+            if (resumeEmail) {
+                const candidate = await this.prisma.candidate.findFirst({
+                    where: { email: resumeEmail },
+                    select: { id: true },
+                });
+                ownerId = candidate?.id ?? null;
+            }
+        }
+        if (ownerId === null) {
+            throw new ForbiddenException("Invitation token has no identifiable owner.");
+        }
+        if (ownerId !== candidateId) {
+            throw new ForbiddenException("You do not have permission to use this invitation token.");
+        }
+    }
+
     private extractEmailFromResumeStructured(data: unknown): string | null {
         if (!data || typeof data !== "object") {
             return null;
@@ -107,6 +199,28 @@ export class InterviewService {
         }
         const payload = data as { name?: string | null };
         return payload.name ?? fallback ?? null;
+    }
+
+    private isInvitationTokenCurrentlyUsable(token: {
+        revoked: boolean;
+        expires_at: Date;
+        status: InvitationTokenStatus;
+    }): boolean {
+        return !token.revoked && token.expires_at > new Date() && token.status !== InvitationTokenStatus.invalid;
+    }
+
+    private async assertInvitationTokenUsableById(invitationTokenId: number): Promise<void> {
+        const token = await this.prisma.invitationToken.findUnique({
+            where: { id: invitationTokenId },
+            select: {
+                revoked: true,
+                expires_at: true,
+                status: true,
+            },
+        });
+        if (!token || !this.isInvitationTokenCurrentlyUsable(token)) {
+            throw new BadRequestException("Invalid invitation token.");
+        }
     }
 
     private async resolveInterviewHistory(candidateId: number | null, jobId: number) {
@@ -263,17 +377,35 @@ export class InterviewService {
         return value === "en" ? "en" : "ar";
     }
 
+    private extractFirstName(fullName: string): string {
+        const trimmed = fullName.trim();
+        if (!trimmed) return "Candidate";
+        const firstPart = trimmed.split(/\s+/)[0];
+        return firstPart || "Candidate";
+    }
+
+    /** Normalize name for TTS — ElevenLabs interprets capitalized text as excitement/emphasis. */
+    private toTtsFriendlyName(name: string): string {
+        const trimmed = name.trim();
+        if (!trimmed) return trimmed;
+        if (!/[A-Za-z]/.test(trimmed)) return trimmed; // Arabic / non-Latin — no case changes
+        return trimmed
+            .split(/\s+/)
+            .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+            .join(" ");
+    }
+
     private extractCandidateNameFromSessionContext(params: {
         candidate: { candidate_name?: string | null; f_name?: string | null; l_name?: string | null } | null;
         resumeSnapshot: unknown;
     }): string {
         const candidateName = params.candidate?.candidate_name?.trim();
-        if (candidateName) return candidateName;
-        const fullName = [params.candidate?.f_name, params.candidate?.l_name]
+        if (candidateName) return this.extractFirstName(candidateName);
+        const fullName = [params.candidate?.f_name]
             .map((part) => (typeof part === "string" ? part.trim() : ""))
             .filter(Boolean)
             .join(" ");
-        if (fullName) return fullName;
+        if (fullName) return this.extractFirstName(fullName);
 
         const snapshot = params.resumeSnapshot as
             | {
@@ -283,11 +415,11 @@ export class InterviewService {
             | undefined;
         const structuredName = snapshot?.structured?.data?.name;
         if (typeof structuredName === "string" && structuredName.trim()) {
-            return structuredName.trim();
+            return this.extractFirstName(structuredName.trim());
         }
         const resumeName = snapshot?.resume?.name;
         if (typeof resumeName === "string" && resumeName.trim()) {
-            return resumeName.trim();
+            return this.extractFirstName(resumeName.trim());
         }
         return "Candidate";
     }
@@ -420,7 +552,8 @@ export class InterviewService {
 
     }
 
-    async buildElevenLabsSessionContext(interviewSessionId: number) {
+    async buildElevenLabsSessionContext(interviewSessionId: number, candidateId: number) {
+        await this.assertSessionOwnedByCandidate(interviewSessionId, candidateId);
         const session = await this.prisma.interviewSession.findUnique({
             where: { id: interviewSessionId },
             include: {
@@ -465,6 +598,7 @@ export class InterviewService {
             candidate: session.invitation_token.candidate,
             resumeSnapshot,
         });
+        const ttsFriendlyName = this.toTtsFriendlyName(candidateName);
         const jobTitle = typeof jobSnapshot.title === "string" && jobSnapshot.title.trim()
             ? jobSnapshot.title.trim()
             : "the role";
@@ -473,7 +607,7 @@ export class InterviewService {
             : "our company";
         const firstMessage = this.buildFirstMessage({
             language,
-            candidateName,
+            candidateName: ttsFriendlyName,
             jobTitle,
             agencyName,
         });
@@ -496,16 +630,20 @@ export class InterviewService {
             interview_session_id: session.id,
             language,
             dialect: language === "ar" ? "ar-EG" : "en",
-            candidate_name: candidateName,
+            candidate_name: ttsFriendlyName,
             first_message: firstMessage,
-            instrutions: instructionsGuard,
+            // instrutions: instructionsGuard,
             // instructions,
             // determine the dynamic variables based on the language => for the workflow
             dynamic_variables: {
                 interview_session_id: String(session.id),
                 interview_language: language,
                 interview_dialect: language === "ar" ? "ar-EG" : "en",
-                candidate_name: candidateName,
+                candidate_name: ttsFriendlyName,
+                prepared_questions:
+                    preparedQuestions.length > 0
+                        ? preparedQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")
+                        : "",
                 ...this.buildFieldByFieldDynamicVariables({
                     agencySnapshot: agencySnapshot as Record<string, unknown>,
                     jobSnapshot: jobSnapshot as Record<string, unknown>,
@@ -520,7 +658,9 @@ export class InterviewService {
         interviewSessionId: number;
         conversationId: string;
         agentId: string;
+        candidateId: number;
     }) {
+        await this.assertSessionOwnedByCandidate(params.interviewSessionId, params.candidateId);
         const session = await this.prisma.interviewSession.findUnique({
             where: { id: params.interviewSessionId },
             select: { id: true, qa_log: true },
@@ -783,6 +923,7 @@ export class InterviewService {
     }
 
     async startInterviewWithWelcome(interviewTokenId: number, includeSpeech = true) {
+        await this.assertInvitationTokenUsableById(interviewTokenId);
         const resources = await this.prisma.interviewResources.findFirst({
             where: { invitation_token_id: interviewTokenId },
             select: { agency_id: true }
@@ -852,7 +993,9 @@ export class InterviewService {
         };
     }
 
-    async startInterviewSession(interviewTokenId: number) {
+    async startInterviewSession(interviewTokenId: number, candidateId: number) {
+        await this.assertInvitationTokenAccessibleByCandidate(interviewTokenId, candidateId);
+        await this.assertInvitationTokenUsableById(interviewTokenId);
         const resources = await this.prisma.interviewResources.findFirst({
             where: { invitation_token_id: interviewTokenId },
             select: { agency_id: true }
@@ -885,12 +1028,18 @@ export class InterviewService {
 
         this.notifyInterviewStatus(session.id, InterviewSessionStatus.active).catch(() => { });
 
-        const runtimeContext = await this.buildElevenLabsSessionContext(session.id);
+        const runtimeContext = await this.buildElevenLabsSessionContext(session.id, candidateId);
         this.logger.log(`[startInterviewSession] lang=${selectedLanguage} runtimeContext=${JSON.stringify(runtimeContext)}`);
+        const sessionToken = this.jwtService.generateSessionToken({
+            id: candidateId,
+            provider: IJwtProvider.candidate_session,
+            interview_session_id: session.id,
+        });
         return {
             interview_session_id: session.id,
             language: selectedLanguage,
             runtime_context: runtimeContext,
+            session_token: sessionToken,
         };
     }
 
@@ -932,7 +1081,11 @@ export class InterviewService {
         return Array.from(languages);
     }
 
-    async createInterviewResources(invitationToken: string, language?: "ar" | "en") {
+    async createInterviewResources(
+        invitationToken: string,
+        language: "ar" | "en" | undefined,
+        candidateId: number
+    ) {
         const token = await this.prisma.invitationToken.findFirst({
             where: { token: invitationToken },
             select: {
@@ -945,9 +1098,11 @@ export class InterviewService {
             },
         });
 
-        if (!token || token.revoked || token.expires_at <= new Date()) {
+        if (!token || !this.isInvitationTokenCurrentlyUsable(token)) {
             throw new BadRequestException("Invalid invitation token.");
         }
+
+        await this.assertInvitationTokenAccessibleByCandidate(token.id, candidateId);
 
         const invitation = await this.prisma.invitation.findUnique({
             where: { id: token.invitation_id },
@@ -1201,13 +1356,21 @@ export class InterviewService {
 
         const statusWhere: Prisma.InvitationTokenWhereInput =
             status === "active"
-                ? { revoked: false, expires_at: { gt: now } }
+                ? {
+                    revoked: false,
+                    expires_at: { gt: now },
+                    status: InvitationTokenStatus.valid,
+                }
                 : status === "revoked"
                     ? { revoked: true }
                     : status === "expired" || status === "invalid"
                         ? { OR: [{ revoked: true }, { expires_at: { lte: now } }, { status: "invalid" }] }
                         : status === "in_use"
-                            ? { status: "in_use" }
+                            ? {
+                                revoked: false,
+                                expires_at: { gt: now },
+                                status: InvitationTokenStatus.in_use,
+                            }
                             : {};
 
         const searchWhere: Prisma.InvitationTokenWhereInput = search
@@ -1290,12 +1453,16 @@ export class InterviewService {
             const session = (token as any).interview_session;
             const agencyFeedback = session?.feedbacks?.find((f: any) => f.from === 'agency');
             const candidateFeedback = session?.feedbacks?.find((f: any) => f.from === 'candidate');
+            const effectiveStatus =
+                token.revoked || token.expires_at <= now || token.status === InvitationTokenStatus.invalid
+                    ? InvitationTokenStatus.invalid
+                    : token.status;
 
             return {
                 id: token.id,
                 token: token.token,
                 revoked: token.revoked,
-                status: token.status,
+                status: effectiveStatus,
                 expires_at: token.expires_at,
                 created_at: token.created_at,
                 agency: token.invitation?.from ?? null,
@@ -1327,7 +1494,10 @@ export class InterviewService {
         );
     }
 
-    async cancelInterviewSession(interviewSessionId: number) {
+    async cancelInterviewSession(interviewSessionId: number, candidateId?: number) {
+        if (candidateId !== undefined) {
+            await this.assertSessionOwnedByCandidate(interviewSessionId, candidateId);
+        }
         const session = await this.prisma.interviewSession.findUnique({
             where: { id: interviewSessionId },
             include: { invitation_token: { select: { invitation_id: true } } },
@@ -1350,7 +1520,10 @@ export class InterviewService {
             await tx.invitationToken.updateMany({
                 where: {
                     invitation_id: invitationId,
-                    revoked: false,
+                    OR: [
+                        { revoked: false },
+                        { status: { not: InvitationTokenStatus.invalid } },
+                    ],
                 },
                 data: { revoked: true, status: InvitationTokenStatus.invalid },
             });
@@ -1366,7 +1539,24 @@ export class InterviewService {
         return updatedSession;
     }
 
-    async completeInterviewSession(interviewSessionId: number) {
+    async phaseComplete(interviewSessionId: number, candidateId: number) {
+        await this.assertSessionOwnedByCandidate(interviewSessionId, candidateId);
+        const session = await this.prisma.interviewSession.findUnique({
+            where: { id: interviewSessionId },
+        });
+        if (!session) {
+            throw new BadRequestException("Interview session not found.");
+        }
+        if (session.status !== InterviewSessionStatus.active) {
+            throw new BadRequestException("Interview session is not active.");
+        }
+        return { message: "Phase marked complete." };
+    }
+
+    async completeInterviewSession(interviewSessionId: number, candidateId?: number) {
+        if (candidateId !== undefined) {
+            await this.assertSessionOwnedByCandidate(interviewSessionId, candidateId);
+        }
         const session = await this.prisma.interviewSession.findUnique({
             where: { id: interviewSessionId },
         });
@@ -1424,7 +1614,8 @@ export class InterviewService {
         return updatedSession;
     }
 
-    async getGeneratedProfile(interviewSessionId: number) {
+    async getGeneratedProfile(interviewSessionId: number, candidateId: number) {
+        await this.assertSessionOwnedByCandidate(interviewSessionId, candidateId);
         const session = await this.prisma.interviewSession.findUnique({
             where: { id: interviewSessionId },
             select: {
@@ -1580,9 +1771,13 @@ export class InterviewService {
     async postponeInterviewSession(
         interviewSessionId: number,
         mode: "immediate" | "pick_datetime" | "pick_date",
-        scheduledFor?: string,
-        scheduledForDate?: string
+        scheduledFor: string | undefined,
+        scheduledForDate: string | undefined,
+        candidateId?: number
     ) {
+        if (candidateId !== undefined) {
+            await this.assertSessionOwnedByCandidate(interviewSessionId, candidateId);
+        }
         const normalizeDateOnly = (date: Date) =>
             new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
         const now = new Date();
@@ -1719,7 +1914,10 @@ export class InterviewService {
             await tx.invitationToken.updateMany({
                 where: {
                     invitation_id: invitation.id,
-                    revoked: false,
+                    OR: [
+                        { revoked: false },
+                        { status: { not: InvitationTokenStatus.invalid } },
+                    ],
                 },
                 data: {
                     revoked: true,
@@ -1733,6 +1931,7 @@ export class InterviewService {
                     expires_at: newTokenExpiresAt,
                     invitation_id: invitation.id,
                     candidate_id: resolvedCandidateId,
+                    status: InvitationTokenStatus.valid,
                 },
                 select: { token: true, expires_at: true },
             });
@@ -1802,8 +2001,10 @@ export class InterviewService {
     async appendQaLogEntry(
         interviewSessionId: number,
         role: "assistant" | "user",
-        content: string
+        content: string,
+        candidateId: number
     ) {
+        await this.assertSessionOwnedByCandidate(interviewSessionId, candidateId);
         if (!Number.isFinite(interviewSessionId) || interviewSessionId <= 0) {
             throw new BadRequestException("Invalid interview session id.");
         }
@@ -1843,8 +2044,10 @@ export class InterviewService {
 
     async trackModalDismissed(
         interviewSessionId: number,
-        modalType: "cancel" | "postpone"
+        modalType: "cancel" | "postpone",
+        candidateId: number
     ) {
+        await this.assertSessionOwnedByCandidate(interviewSessionId, candidateId);
         if (!Number.isFinite(interviewSessionId) || interviewSessionId <= 0) {
             throw new BadRequestException("Invalid interview session id.");
         }
@@ -1878,10 +2081,18 @@ export class InterviewService {
         );
     }
 
-    async recordRealtimeMetrics(body: RealtimeMetricsDto) {
+    async updateInterviewSessionRecord(interviewSessionId: number, recordUrl: string): Promise<void> {
+        await this.prisma.interviewSession.update({
+            where: { id: interviewSessionId },
+            data: { record: recordUrl },
+        });
+    }
+
+    async recordRealtimeMetrics(body: RealtimeMetricsDto, candidateId: number) {
         if (!body.interview_session_id) {
             return;
         }
+        await this.assertSessionOwnedByCandidate(body.interview_session_id, candidateId);
         const session = await this.prisma.interviewSession.findUnique({
             where: { id: body.interview_session_id },
             select: { id: true, qa_log: true },
@@ -1968,7 +2179,12 @@ export class InterviewService {
                     transitionAction === "postpone" &&
                     session.status !== InterviewSessionStatus.postponed
                 ) {
-                    await this.postponeInterviewSession(session.id, "immediate");
+                    await this.postponeInterviewSession(
+                        session.id,
+                        "immediate",
+                        undefined,
+                        undefined
+                    );
                 }
             } catch (error) {
                 existingLog.push({

@@ -22,7 +22,10 @@ const candidateRoom = (candidateId: number) => `candidate:${candidateId}`;
 @WebSocketGateway({
     namespace: "/candidate",
     cors: {
-        origin: "*",
+        origin:
+            process.env.NODE_ENV !== 'production'
+                ? ['http://localhost:3002', process.env.FRONTEND_URL_CANDIDATE].filter(Boolean)
+                : process.env.FRONTEND_URL_CANDIDATE || 'http://localhost:3002',
         credentials: true,
     },
 })

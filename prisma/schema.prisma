@@ -139,16 +139,6 @@ enum InvitationTokenStatus{
     invalid
 }
 
-enum InvitationStatus {
-    sent
-    accepted
-    rejected
-    completed
-    scheduled
-    offline_scheduled
-}
-
-
 enum ProfileExperienceType{
     remote
     hybrid
@@ -178,17 +168,6 @@ enum InterviewGeneratedProfileStatus{
     failed
 }
 
-enum FeedbackFrom {
-  agency
-  candidate
-}
-
-enum FeedbackDecision {
-  shortlist
-  reject
-  advance_offline
-}
-
 enum PlanName{
     intro
     base
@@ -206,6 +185,17 @@ enum CandidateInboxType{
     application
     interview
     account
+}
+
+enum FeedbackFrom {
+  agency
+  candidate
+}
+
+enum FeedbackDecision {
+  shortlist
+  reject
+  advance_offline
 }
 
 // --- resume.prisma ---
@@ -594,7 +584,6 @@ model Invitation {
     job    Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
 
     candidate Candidate?
-    status    InvitationStatus @default(sent)
     tokens    InvitationToken[]
 
     updated_by Int?
@@ -888,6 +877,7 @@ model InterviewSession{
     close_without_confirm_postpone_count Int @default(0)
 
     qa_log Json
+    record String?
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
@@ -920,6 +910,23 @@ model ElevenLabsWebhookEvent {
     @@index([created_at])
 }
 
+model InterviewFeedback {
+  id Int @id @default(autoincrement())
+  session_id Int
+  session InterviewSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  from FeedbackFrom
+  rating Int
+  comment String? @db.Text
+  decision FeedbackDecision?
+  proposed_date_range_start DateTime?
+  proposed_date_range_end DateTime?
+  selected_date DateTime?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  @@unique([session_id, from])
+  @@index([session_id])
+}
+
 // --- application.prisma ---
 model JobApplication {
     id Int @id @default(autoincrement())
@@ -941,31 +948,4 @@ model JobApplication {
     @@index([candidate_id])
     @@index([job_id])
     @@index([resume_id])
-}
-
-model InterviewFeedback {
-  id Int @id @default(autoincrement())
-  
-  session_id Int
-  session InterviewSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
-  
-  from FeedbackFrom
-  rating Int
-  comment String? @db.Text
-  
-  // Decision fields (primarily for agency)
-  decision FeedbackDecision?
-  
-  // Scheduling fields (if agency chooses advance_offline)
-  proposed_date_range_start DateTime?
-  proposed_date_range_end DateTime?
-  
-  // Candidate's selection from the proposed range
-  selected_date DateTime?
-  
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  @@unique([session_id, from])
-  @@index([session_id])
 }

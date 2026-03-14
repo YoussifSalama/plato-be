@@ -49,6 +49,7 @@ model InterviewSession{
     close_without_confirm_postpone_count Int @default(0)
 
     qa_log Json
+    record String?
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
@@ -56,6 +57,7 @@ model InterviewSession{
     inboxes Inbox[]
     candidate_inboxes CandidateInbox[]
     elevenlabs_webhook_events ElevenLabsWebhookEvent[]
+    feedbacks InterviewFeedback[]
 
     @@index([agency_id])
     @@index([invitation_token_id])
@@ -78,4 +80,21 @@ model ElevenLabsWebhookEvent {
     @@index([interview_session_id])
     @@index([conversation_id])
     @@index([created_at])
+}
+
+model InterviewFeedback {
+  id Int @id @default(autoincrement())
+  session_id Int
+  session InterviewSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  from FeedbackFrom
+  rating Int
+  comment String? @db.Text
+  decision FeedbackDecision?
+  proposed_date_range_start DateTime?
+  proposed_date_range_end DateTime?
+  selected_date DateTime?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  @@unique([session_id, from])
+  @@index([session_id])
 }

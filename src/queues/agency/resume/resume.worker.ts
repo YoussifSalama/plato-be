@@ -6,7 +6,7 @@ import { ResumeParserService } from "src/shared/helpers/modules/agency/resume/re
 import { ArrangedSavedResume } from "./resume.producer";
 import * as path from 'path';
 import * as fs from 'fs';
-import { buildResumeAiPromptV1 } from "src/shared/ai/agency/prompts/resume.prompt";
+import { buildResumeAiPromptV1 } from "../../../shared/ai/agency/prompts/resume.prompt";
 import { ConfigService } from "@nestjs/config";
 import OpenAI from "openai";
 import { ResumeAiBatchStatus } from "@generated/prisma";

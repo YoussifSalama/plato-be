@@ -55,4 +55,10 @@ export interface IEnvParams {
     secretKey: string;
     webhookSecret: string;
   };
+  s3: {
+    bucket: string;
+    region: string;
+    keyId: string;
+    secretAccessKey: string;
+  };
 }
