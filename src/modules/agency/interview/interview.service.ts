@@ -114,6 +114,14 @@ export class AgencyInterviewService {
                             },
                         },
                     },
+                    feedbacks: {
+                        select: {
+                            from: true,
+                            decision: true,
+                            rating: true,
+                            selected_date: true,
+                        }
+                    }
                 },
                 orderBy,
                 ...pagination,
@@ -142,6 +150,11 @@ export class AgencyInterviewService {
                             email: candidate.email ?? null,
                         }
                         : null,
+                    feedbacks: session.feedbacks,
+                    selected_date: session.feedbacks?.find(f => f.from === 'candidate')?.selected_date ?? null,
+                    is_candidate_submitted: session.feedbacks?.some(f => f.from === 'candidate') ?? false,
+                    is_agency_submitted: session.feedbacks?.some(f => f.from === 'agency') ?? false,
+                    agency_decision: session.feedbacks?.find(f => f.from === 'agency')?.decision ?? null,
                 };
             });
 
