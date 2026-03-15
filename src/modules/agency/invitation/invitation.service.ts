@@ -144,12 +144,18 @@ export class InvitationService {
                 invitationId = invitation.id;
             }
 
+            const application = await tx.jobApplication.findUnique({
+                where: { resume_id: resumeId },
+                select: { id: true },
+            });
+
             const invitationToken = await tx.invitationToken.create({
                 data: {
                     token,
                     expires_at,
                     invitation_id: invitationId,
                     candidate_id: candidateId ?? undefined,
+                    job_application_id: application?.id,
                 },
                 select: { token: true, expires_at: true },
             });
@@ -353,8 +359,25 @@ export class InvitationService {
                 409,
             );
         }
+
+        const invitation = await this.prisma.invitation.findUnique({
+            where: { id: invitationToken.invitation.id },
+            select: {
+                job: {
+                    select: {
+                        id: true,
+                        title: true,
+                        required_documents: true,
+                    }
+                }
+            }
+        });
+
         return responseFormatter(
-            { status: "valid" },
+            { 
+                status: "valid",
+                job: invitation?.job || null
+            },
             null,
             "Invitation token is valid.",
             200,

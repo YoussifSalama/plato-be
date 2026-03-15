@@ -243,6 +243,7 @@ model Job {
   description                   String
   requirements                  String
   certifications                String
+  required_documents            String?
   technical_skills              String[]
   languages                     Json[]
   agency_id                     Int
@@ -331,11 +332,13 @@ model InvitationToken {
   created_at         DateTime              @default(now())
   updated_at         DateTime              @updatedAt
   candidate_id       Int?
+  job_application_id Int?
   status             InvitationTokenStatus @default(valid)
   interview_resource InterviewResources?
   interview_session  InterviewSession?
   candidate          Candidate?            @relation(fields: [candidate_id], references: [id])
-  invitation         Invitation            @relation(fields: [invitation_id], references: [id])
+  job_application    JobApplication?       @relation(fields: [job_application_id], references: [id], onDelete: SetNull)
+  invitation         Invitation            @relation(fields: [invitation_id], references: [id], onDelete: Cascade)
 }
 
 model Inbox {
@@ -352,11 +355,11 @@ model Inbox {
   updated_at           DateTime               @updatedAt
   interview_session_id Int?
   job_application_id   Int?
-  agency               Agency                 @relation(fields: [agency_id], references: [id])
-  batch                ResumeProcessingBatch? @relation(fields: [batch_id], references: [id])
-  interview_session    InterviewSession?      @relation(fields: [interview_session_id], references: [id])
-  job_application      JobApplication?        @relation(fields: [job_application_id], references: [id])
-  job                  Job?                   @relation(fields: [job_id], references: [id])
+  agency               Agency                 @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+  batch                ResumeProcessingBatch? @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  interview_session    InterviewSession?      @relation(fields: [interview_session_id], references: [id], onDelete: Cascade)
+  job_application      JobApplication?        @relation(fields: [job_application_id], references: [id], onDelete: Cascade)
+  job                  Job?                   @relation(fields: [job_id], references: [id], onDelete: Cascade)
 }
 
 model Candidate {
@@ -607,13 +610,25 @@ model JobApplication {
   resume_id    Int       @unique
   inboxes      Inbox[]
   candidate    Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
-  job          Job       @relation(fields: [job_id], references: [id], onDelete: Cascade)
-  resume       Resume    @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+  job          Job                      @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  resume            Resume                   @relation(fields: [resume_id], references: [id], onDelete: Cascade)
+  documents         JobApplicationDocument[]
+  invitation_tokens InvitationToken[]
 
   @@unique([candidate_id, job_id])
   @@index([candidate_id])
   @@index([job_id])
   @@index([resume_id])
+}
+
+model JobApplicationDocument {
+  id                 Int            @id @default(autoincrement())
+  name               String
+  link               String
+  job_application_id Int
+  job_application    JobApplication @relation(fields: [job_application_id], references: [id], onDelete: Cascade)
+  created_at         DateTime       @default(now())
+  updated_at         DateTime       @updatedAt
 }
 
 enum ResumeFileTypes {

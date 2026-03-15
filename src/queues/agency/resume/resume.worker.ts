@@ -210,26 +210,8 @@ export class ResumeWorker extends WorkerHost {
             if (!agencyId) {
                 throw new Error("Agency not found for resume processing.");
             }
-            const duplicateResumeIds: number[] = [];
-            const uniqueResumes: { id: number; parsed: string }[] = [];
-            for (const parsedResume of parsedResumes) {
-                const duplicate = await this.prisma.resume.findFirst({
-                    where: {
-                        id: { not: parsedResume.id },
-                        job_id: job.data.jobId,
-                        parsed: parsedResume.parsed,
-                    },
-                    select: { id: true },
-                });
-                if (duplicate) {
-                    this.logger.log(
-                        `Deleting duplicate resume ${parsedResume.id} (matches ${duplicate.id}).`,
-                    );
-                    duplicateResumeIds.push(parsedResume.id);
-                    continue;
-                }
-                uniqueResumes.push(parsedResume);
-            }
+            const uniqueResumes = parsedResumes;
+
             const chunkSize = 20;
             for (let i = 0; i < uniqueResumes.length; i += chunkSize) {
                 const chunk = uniqueResumes.slice(i, i + chunkSize);
@@ -242,11 +224,7 @@ export class ResumeWorker extends WorkerHost {
                     ),
                 );
             }
-            if (duplicateResumeIds.length > 0) {
-                await this.prisma.resume.deleteMany({
-                    where: { id: { in: duplicateResumeIds } },
-                });
-            }
+
             if (uniqueResumes.length === 0) {
                 this.logger.log("No new resumes to analyze after duplicate check.");
                 return;

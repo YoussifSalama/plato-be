@@ -1,9 +1,10 @@
-import { Controller, Post, Get, Param, UseGuards, Req, ParseIntPipe, Query } from '@nestjs/common';
+import { Controller, Post, Get, Param, UseGuards, Req, ParseIntPipe, Query, Body } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ApplicationService } from './application.service';
 import { CandidateJwtAuthGuard } from 'src/shared/guards/candidate-jwt-auth.guard';
 import { AccessTokenPayload } from 'src/shared/types/services/jwt.types';
 import { paginationDto } from 'src/shared/dto/pagination.dto';
+import { ApplyJobDto } from './dto/apply-job.dto';
 
 @ApiTags('Job Applications')
 @Controller('candidate/applications')
@@ -27,8 +28,9 @@ export class ApplicationController {
     @ApiOperation({ summary: 'Apply for a job' })
     async apply(
         @Req() req: { user: AccessTokenPayload },
-        @Param('jobId', ParseIntPipe) jobId: number
+        @Param('jobId', ParseIntPipe) jobId: number,
+        @Body() dto: ApplyJobDto
     ) {
-        return this.applicationService.apply(req.user.id, jobId);
+        return this.applicationService.apply(req.user.id, jobId, dto.documents);
     }
 }

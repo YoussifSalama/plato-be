@@ -355,6 +355,11 @@ export class ResumeService {
                         insights: true,
                     },
                 },
+                application: {
+                    include: {
+                        documents: true,
+                    },
+                },
             },
         });
 
@@ -398,6 +403,11 @@ export class ResumeService {
                         seniority_level: true,
                         recommendation: true,
                         insights: true,
+                    },
+                },
+                application: {
+                    include: {
+                        documents: true,
                     },
                 },
             },

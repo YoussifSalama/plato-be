@@ -32,8 +32,9 @@ async function bootstrap() {
     process.env.FRONTEND_URL,
   ].filter((o): o is string => Boolean(o));
   const allowedOrigins = new Set(
-    origins.length > 0 ? origins : ["http://localhost:3002", "http://localhost:3001"],
+    origins.length > 0 ? origins : ["http://localhost:3002", "http://localhost:3001", "http://localhost:3000"],
   );
+  allowedOrigins.add("http://localhost:3000");
 
   app.use(
     cors({

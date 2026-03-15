@@ -1121,6 +1121,23 @@ export class InterviewService {
             throw new BadRequestException("Invitation not found.");
         }
 
+        // Check for required documents
+        if (invitation.job?.required_documents) {
+            const application = await this.prisma.jobApplication.findUnique({
+                where: {
+                    candidate_id_job_id: {
+                        candidate_id: candidateId,
+                        job_id: invitation.job_id,
+                    },
+                },
+                include: { documents: true },
+            });
+
+            if (!application || !application.documents || application.documents.length === 0) {
+                throw new BadRequestException(`Please upload the required documents before starting the interview: ${invitation.job.required_documents}`);
+            }
+        }
+
         await this.validateAgencyQuota(invitation.from.id);
 
         const resumeStructuredEmail = this.extractEmailFromResumeStructured(
@@ -1425,8 +1442,21 @@ export class InterviewService {
                                     title: true,
                                     description: true,
                                     is_active: true,
+                                    required_documents: true,
+                                    id: true,
                                 },
                             },
+                            to: {
+                                select: {
+                                    application: {
+                                        select: {
+                                            documents: {
+                                                select: { id: true }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         },
                     },
                     interview_session: {
@@ -1472,12 +1502,19 @@ export class InterviewService {
                         title: token.invitation.job.title,
                         description: token.invitation.job.description,
                         status: token.invitation.job.is_active ? "active" : "inactive",
+                        required_documents: token.invitation.job.required_documents,
+                        id: token.invitation.job.id,
                     }
                     : null,
                 interview_session_id: session?.id ?? null,
                 session_status: session?.status ?? null,
                 agency_decision: agencyFeedback ? agencyFeedback.decision : null,
                 is_candidate_submitted: !!candidateFeedback,
+                has_pending_documents: !!(
+                    token.invitation?.job?.required_documents &&
+                    (!(token.invitation.to as any)?.application?.documents ||
+                        (token.invitation.to as any).application.documents.length === 0)
+                ),
                 is_agency_submitted: !!agencyFeedback,
                 selected_date: candidateFeedback ? candidateFeedback.selected_date : null,
             };
