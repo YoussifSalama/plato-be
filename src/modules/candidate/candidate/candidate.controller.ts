@@ -31,7 +31,7 @@ export class CandidateController {
     @Post("invitation/complete")
     @ApiOperation({ summary: "Set candidate password and login" })
     async completeInvitation(@Body() dto: InvitationCompleteDto) {
-        return this.candidateService.completeInvitation(dto.token, dto.password);
+        return this.candidateService.completeInvitation(dto.token, dto.password, dto.documents);
     }
 
     @Post("login")

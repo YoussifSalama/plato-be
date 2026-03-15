@@ -11,5 +11,11 @@ export class InvitationCompleteDto {
     @IsString()
     @MinLength(8)
     password: string;
+
+    @ApiProperty({
+        example: [{ name: "PMP", link: "https://example.com/pmp.pdf" }],
+        required: false
+    })
+    documents?: { name: string; link: string }[];
 }
 

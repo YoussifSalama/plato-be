@@ -90,6 +90,8 @@ export class CandidateService {
                 invitation: {
                     select: {
                         id: true,
+                        to_id: true,
+                        job_id: true,
                         to: {
                             select: {
                                 name: true,
@@ -354,7 +356,7 @@ export class CandidateService {
         );
     }
 
-    async completeInvitation(token: string, password: string) {
+    async completeInvitation(token: string, password: string, documents?: { name: string; link: string }[]) {
         const {
             invitation,
             invitationTokenId,
@@ -380,17 +382,68 @@ export class CandidateService {
         }
 
         const newHash = await this.bcryptService.bcryptHash(password, "password");
-        await this.prisma.candidateCredential.update({
-            where: { id: candidate.credential.id },
-            data: { password_hash: newHash },
-        });
-        await this.prisma.candidate.update({
-            where: { id: candidate.id },
-            data: { verified: true },
-        });
-        await this.prisma.invitationToken.update({
-            where: { id: invitationTokenId },
-            data: { candidate_id: candidate.id },
+        
+        await this.prisma.$transaction(async (tx) => {
+            await tx.candidateCredential.update({
+                where: { id: candidate.credential.id },
+                data: { password_hash: newHash },
+            });
+            await tx.candidate.update({
+                where: { id: candidate.id },
+                data: { verified: true },
+            });
+            // Ensure JobApplication exists for this invitation
+            let application = await tx.jobApplication.findUnique({
+                where: { resume_id: invitation.to_id }
+            });
+
+            if (!application) {
+                // Check if candidate already has an application for this job (e.g. applied before being invited)
+                application = await tx.jobApplication.findUnique({
+                    where: {
+                        candidate_id_job_id: {
+                            candidate_id: candidate.id,
+                            job_id: invitation.job_id,
+                        },
+                    },
+                });
+            }
+
+            if (!application) {
+                application = await tx.jobApplication.create({
+                    data: {
+                        candidate_id: candidate.id,
+                        job_id: invitation.job_id,
+                        resume_id: invitation.to_id,
+                    },
+                });
+            } else if (!application.candidate_id) {
+                // If application exists but isn't linked to candidate (e.g. just a resume upload)
+                application = await tx.jobApplication.update({
+                    where: { id: application.id },
+                    data: { candidate_id: candidate.id }
+                });
+            }
+
+            // LINK InvitationToken to JobApplication
+            await tx.invitationToken.update({
+                where: { id: invitationTokenId },
+                data: { 
+                    candidate_id: candidate.id,
+                    job_application_id: application.id
+                },
+            });
+
+            // Attach documents if provided
+            if (documents && documents.length > 0) {
+                await tx.jobApplicationDocument.createMany({
+                    data: documents.map(doc => ({
+                        name: doc.name,
+                        link: doc.link,
+                        job_application_id: application.id,
+                    })),
+                });
+            }
         });
 
         const tokenPayload = { id: candidate.id, provider: IJwtProvider.candidate };

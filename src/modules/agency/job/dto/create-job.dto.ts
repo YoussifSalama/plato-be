@@ -112,6 +112,11 @@ export class CreateJobDto {
     @IsString()
     certifications?: string;
 
+    @ApiPropertyOptional({ example: "PMP, AWS" })
+    @IsOptional()
+    @IsString()
+    required_documents?: string;
+
     @ApiPropertyOptional({ example: "About the company and mission." })
     @IsOptional()
     @IsString()

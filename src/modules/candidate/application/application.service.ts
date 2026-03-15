@@ -83,7 +83,7 @@ export class ApplicationService {
         );
     }
 
-    async apply(candidateId: number, jobId: number) {
+    async apply(candidateId: number, jobId: number, documents?: { name: string; link: string }[]) {
         // 1. Fetch Job and check existence
         const job = await this.prisma.job.findUnique({
             where: { id: jobId },
@@ -104,6 +104,29 @@ export class ApplicationService {
         });
 
         if (existingApplication) {
+            if (documents && documents.length > 0) {
+                // If application exists, but documents were provided (e.g. from interview flow), update documents
+                await this.prisma.jobApplicationDocument.createMany({
+                    data: documents.map(doc => ({
+                        name: doc.name,
+                        link: doc.link,
+                        job_application_id: existingApplication.id,
+                    })),
+                });
+                
+                // Fetch and return the application with documents
+                const updatedApplication = await this.prisma.jobApplication.findUnique({
+                    where: { id: existingApplication.id },
+                    include: { documents: true },
+                });
+                
+                return responseFormatter(
+                    updatedApplication,
+                    null,
+                    "Documents added to existing application successfully",
+                    200
+                );
+            }
             throw new ConflictException('You have already applied for this job');
         }
 
@@ -173,7 +196,23 @@ export class ApplicationService {
                 },
             });
 
-            return application;
+            // Create document entries if provided
+            if (documents && documents.length > 0) {
+                console.log(`Saving ${documents.length} documents for application ${application.id}`);
+                await tx.jobApplicationDocument.createMany({
+                    data: documents.map(doc => ({
+                        name: doc.name,
+                        link: doc.link,
+                        job_application_id: application.id,
+                    })),
+                });
+            }
+
+            // Fetch the completed application with documents included
+            return await tx.jobApplication.findUnique({
+                where: { id: application.id },
+                include: { documents: true }
+            });
         });
 
         // Trigger inbox notification
@@ -183,7 +222,7 @@ export class ApplicationService {
                 select: { f_name: true, l_name: true }
             });
 
-            if (job && candidate) {
+            if (job && candidate && application) {
                 await this.inboxService.createApplicationInbox({
                     agencyId: job.agency_id,
                     jobId: jobId,
@@ -198,12 +237,14 @@ export class ApplicationService {
 
         // Trigger resume processing
         try {
-            const resumeToProcess = await this.prisma.resume.findUnique({
-                where: { id: application.resume_id },
-                select: { id: true, name: true, file_type: true, link: true }
-            });
-            if (resumeToProcess) {
-                await this.resumeProducer.processResumes([resumeToProcess], jobId);
+            if (application) {
+                const resumeToProcess = await this.prisma.resume.findUnique({
+                    where: { id: application.resume_id },
+                    select: { id: true, name: true, file_type: true, link: true }
+                });
+                if (resumeToProcess) {
+                    await this.resumeProducer.processResumes([resumeToProcess], jobId);
+                }
             }
         } catch (error) {
             console.error('Failed to dispatch resume to queue for processing', error);

@@ -136,7 +136,91 @@ export class FeedbackService {
         return result;
     }
 
-    private async getAgencyId(accountId: number) {
+    async getAllAgencyFeedbacks(
+        accountId: number,
+        options: { page?: number; limit?: number; } = {}
+    ) {
+        const agencyId = await this.getAgencyId(accountId);
+
+        const page = options.page ? parseInt(options.page as any, 10) : 1;
+        const limit = options.limit ? parseInt(options.limit as any, 10) : 10;
+        const skip = (page - 1) * limit;
+
+        const [items, total] = await Promise.all([
+            this.prisma.interviewFeedback.findMany({
+                where: {
+                    from: FeedbackFrom.candidate,
+                    session: {
+                        agency_id: agencyId
+                    }
+                },
+                include: {
+                    session: {
+                        include: {
+                            invitation_token: {
+                                include: {
+                                    candidate: {
+                                        select: { candidate_name: true, f_name: true, l_name: true }
+                                    },
+                                    invitation: {
+                                        include: {
+                                            job: {
+                                                select: { title: true }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                orderBy: {
+                    created_at: 'desc'
+                },
+                skip,
+                take: limit,
+            }),
+            this.prisma.interviewFeedback.count({
+                where: {
+                    from: FeedbackFrom.candidate,
+                    session: {
+                        agency_id: agencyId
+                    }
+                }
+            })
+        ]);
+
+        const total_pages = Math.ceil(total / limit);
+
+        const mappedItems = items.map(item => ({
+            id: item.id,
+            rating: item.rating,
+            comment: item.comment,
+            created_at: item.created_at,
+            candidate: {
+                name: (item.session as any)?.invitation_token?.candidate?.candidate_name || 
+                      ((item.session as any)?.invitation_token?.candidate?.f_name + ' ' + (item.session as any)?.invitation_token?.candidate?.l_name).trim() || 
+                      'Unknown Candidate',
+                image_url: null, // Candidate model doesn't have image_url
+            },
+            job_title: (item.session as any)?.invitation_token?.invitation?.job?.title || 'Unknown Job',
+            session_id: item.session_id
+        }));
+
+        return {
+            items: mappedItems,
+            meta: {
+                total,
+                page,
+                limit,
+                total_pages,
+                has_next_page: page < total_pages,
+                has_previous_page: page > 1,
+            }
+        };
+    }
+
+    private async getAgencyId(accountId: number): Promise<number> {
         const account = await this.prisma.account.findUnique({
             where: { id: accountId },
             include: { teamMember: { include: { team: { include: { agency: true } } } } },
@@ -146,6 +230,10 @@ export class FeedbackService {
             throw new NotFoundException("Agency account not found");
         }
 
-        return account.teamMember?.team?.agency?.id ?? account.agency_id;
+        const agencyId = account.teamMember?.team?.agency?.id ?? account.agency_id;
+        if (agencyId === null || agencyId === undefined) {
+            throw new NotFoundException("Agency ID not found for this account");
+        }
+        return agencyId;
     }
 }
